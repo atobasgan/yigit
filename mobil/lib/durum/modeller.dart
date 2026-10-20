@@ -12,3 +12,6 @@ enum PttDurumu {
   /// Tuş bırakıldı, komut işleniyor.
   isleniyor,
 }
+
+/// Yer istasyonu bağlantısının durumu.
+enum BaglantiDurumu { kopuk, baglaniyor, bagli, hata }

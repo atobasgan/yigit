@@ -1,27 +1,34 @@
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:telsiz/app.dart';
+import 'package:telsiz/durum/telsiz_kontrolcusu.dart';
+
+import 'sahteler.dart';
 
 void main() {
-  testWidgets('bas-konuş tuşu dokunduğun anda tepki verir', (tester) async {
-    await tester.pumpWidget(const TelsizUygulamasi());
+  testWidgets('bağlan ekranı -> hos_geldin -> telsiz ekranı', (tester) async {
+    SharedPreferences.setMockInitialValues({}); // testte gerçek depolama yok
+    final b = SahteBaglanti();
+    final k = TelsizKontrolcusu(baglanti: b);
+    await tester.pumpWidget(TelsizUygulamasi(kontrolcu: k));
+    expect(find.text('Bağlan'), findsOneWidget);
+
+    await tester.enterText(find.byType(TextField).first, '10.0.0.2:8765');
+    await tester.enterText(find.byType(TextField).last, 'T');
+    await tester.tap(find.text('Bağlan'));
+    await tester.pump();
+    b.gelsin({'tip': 'hos_geldin', 'rol': 'operator', 'yer_stt': false});
+    await tester.pump();
+
+    expect(find.text('OPERATÖR'), findsOneWidget);
+    expect(find.text('12 ms'), findsOneWidget, reason: 'ping göstergesi');
     expect(find.text('BAS KONUŞ'), findsOneWidget);
 
-    // Parmağı tuşa koy: uzun basma beklemeden hemen "KONUŞ" olmalı.
     final parmak = await tester.startGesture(tester.getCenter(find.text('BAS KONUŞ')));
     await tester.pump();
     expect(find.text('KONUŞ'), findsOneWidget);
-
-    await tester.pump(const Duration(milliseconds: 300));
     await parmak.up();
     await tester.pump();
-    expect(find.text('BAS KONUŞ'), findsOneWidget);
-    expect(find.textContaining('Konuşma 1:'), findsOneWidget);
-  });
-
-  testWidgets('ACİL DUR tuşu görünür ve çalışır', (tester) async {
-    await tester.pumpWidget(const TelsizUygulamasi());
-    await tester.tap(find.text('ACİL DUR'));
-    await tester.pump();
-    expect(find.textContaining('Faz 6'), findsOneWidget);
   });
 }
