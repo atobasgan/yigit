@@ -165,10 +165,13 @@ cd ../mobil && flutter test && ../scripts/uyum_testi.sh
 
 # Elle:
 cd kopru && python3 -m mobile_bridge.deneme_sunucusu --token ABC
-python3 -m mobile_bridge.sahte_telefon --url 'ws://127.0.0.1:8765/telsiz?token=ABC' \
-    --metin "beş yüz metre yüksel"
+URL='ws://127.0.0.1:8765/telsiz?token=ABC'
+python3 -m mobile_bridge.sahte_telefon --url $URL --metin "beş yüz metre yüksel"
 #   -> komut {"adimlar":[{"komut":"yuksel","metre":500.0}]}
-#   -> geri_bildirim reddedildi "hedef irtifa 500 m, sınır 120 m"
+#   -> geri_bildirim reddedildi "yerdeyim, önce kalkış yapmalıyım"
+python3 -m mobile_bridge.sahte_telefon --url $URL --metin "kalk" --bekle 5
+python3 -m mobile_bridge.sahte_telefon --url $URL --metin "beş yüz metre yüksel"
+#   -> geri_bildirim reddedildi "hedef irtifa 510 m, sınır 120 m"
 ```
 
 LLM ile denemek için drone reposunda `./scripts/llama_server.sh` çalıştır,
