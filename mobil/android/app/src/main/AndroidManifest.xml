@@ -1,8 +1,16 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Yer istasyonuyla WebSocket. Debug derlemesi bunu kendiliğinden ekler,
+         RELEASE derlemesi eklemez: unutulursa uygulama yayında hiç bağlanamaz. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Bas-konuş mikrofonu (çalışma anında da kullanıcıya sorulur) -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+
     <application
-        android:label="telsiz"
+        android:label="Drone Telsizi"
         android:name="${applicationName}"
-        android:icon="@mipmap/ic_launcher">
+        android:icon="@mipmap/ic_launcher"
+        android:usesCleartextTraffic="true">
+        <!-- usesCleartextTraffic: yerel ağda ws:// (TLS'siz). Ortak ağda wss:// kullan. -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -37,6 +45,11 @@
 
          In particular, this is used by the Flutter engine in io.flutter.plugin.text.ProcessTextPlugin. -->
     <queries>
+        <!-- Android 11+ "paket görünürlüğü": telefonun konuşma tanıma servisini
+             görebilmek için açıkça istemek gerekir (speech_to_text). -->
+        <intent>
+            <action android:name="android.speech.RecognitionService" />
+        </intent>
         <intent>
             <action android:name="android.intent.action.PROCESS_TEXT"/>
             <data android:mimeType="text/plain"/>

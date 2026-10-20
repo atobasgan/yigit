@@ -2,7 +2,13 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 /// Kullanıcı ayarları (telefonda saklanır). Her fazda yeni ayarlar eklenir.
 class Ayarlar {
-  const Ayarlar({this.sunucuAdresi = '', this.token = '', this.izleyici = false});
+  const Ayarlar({
+    this.sunucuAdresi = '',
+    this.token = '',
+    this.izleyici = false,
+    this.cevrimdisiTanima = false,
+    this.dil = 'tr_TR',
+  });
 
   final String sunucuAdresi;
   final String token;
@@ -10,10 +16,18 @@ class Ayarlar {
   /// Sadece izle (komut veremez).
   final bool izleyici;
 
-  Ayarlar copyWith({String? sunucuAdresi, String? token, bool? izleyici}) => Ayarlar(
+  /// Telefonda tanımada internetsiz (cihaz üstü) tanıma iste.
+  final bool cevrimdisiTanima;
+
+  /// Konuşma tanıma dili.
+  final String dil;
+
+  Ayarlar copyWith({String? sunucuAdresi, String? token, bool? izleyici, bool? cevrimdisiTanima}) => Ayarlar(
     sunucuAdresi: sunucuAdresi ?? this.sunucuAdresi,
     token: token ?? this.token,
     izleyici: izleyici ?? this.izleyici,
+    cevrimdisiTanima: cevrimdisiTanima ?? this.cevrimdisiTanima,
+    dil: dil,
   );
 }
 
@@ -26,6 +40,7 @@ class AyarDeposu {
       sunucuAdresi: p.getString('sunucuAdresi') ?? '',
       token: p.getString('token') ?? '',
       izleyici: p.getBool('izleyici') ?? false,
+      cevrimdisiTanima: p.getBool('cevrimdisiTanima') ?? false,
     );
   }
 
@@ -34,5 +49,6 @@ class AyarDeposu {
     await p.setString('sunucuAdresi', a.sunucuAdresi);
     await p.setString('token', a.token);
     await p.setBool('izleyici', a.izleyici);
+    await p.setBool('cevrimdisiTanima', a.cevrimdisiTanima);
   }
 }

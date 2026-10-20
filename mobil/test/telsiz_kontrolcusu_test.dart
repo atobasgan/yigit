@@ -9,7 +9,7 @@ import 'sahteler.dart';
 void main() {
   test('hos_geldin gelince bağlı ve operatör', () async {
     final b = SahteBaglanti();
-    final k = TelsizKontrolcusu(baglanti: b, geriBildirim: SahteGeriBildirim());
+    final k = TelsizKontrolcusu(baglanti: b, geriBildirim: SahteGeriBildirim(), tanima: SahteTanima());
     var bildirimSayisi = 0;
     k.addListener(() => bildirimSayisi++);
 
@@ -24,7 +24,7 @@ void main() {
 
   test('izleyici komut veremez ve bilgilendirilir', () {
     final b = SahteBaglanti();
-    final k = TelsizKontrolcusu(baglanti: b, geriBildirim: SahteGeriBildirim());
+    final k = TelsizKontrolcusu(baglanti: b, geriBildirim: SahteGeriBildirim(), tanima: SahteTanima());
     b.gelsin({'tip': 'hos_geldin', 'rol': 'izleyici'});
     expect(k.komutVerebilir, isFalse);
     expect(k.bildirim, contains('izleyici'));
@@ -32,7 +32,7 @@ void main() {
 
   test('bağlantı koparsa ekran kalır, kullanıcı koparırsa bağlan ekranına döner', () async {
     final b = SahteBaglanti();
-    final k = TelsizKontrolcusu(baglanti: b, geriBildirim: SahteGeriBildirim());
+    final k = TelsizKontrolcusu(baglanti: b, geriBildirim: SahteGeriBildirim(), tanima: SahteTanima());
     b.gelsin({'tip': 'hos_geldin', 'rol': 'operator'});
     b.koptu();
     expect(k.bagli, isFalse);
@@ -43,7 +43,7 @@ void main() {
 
   test('sunucu hatası bildirime yazılır', () {
     final b = SahteBaglanti();
-    final k = TelsizKontrolcusu(baglanti: b, geriBildirim: SahteGeriBildirim());
+    final k = TelsizKontrolcusu(baglanti: b, geriBildirim: SahteGeriBildirim(), tanima: SahteTanima());
     b.gelsin({'tip': 'hata', 'kod': 'yetkisiz', 'mesaj': 'token hatalı'});
     expect(k.bildirim, 'token hatalı');
   });
@@ -126,7 +126,7 @@ void main() {
 
   test('izleyici komut gönderemez; başkasının komutu uzak kart olur', () {
     final b = SahteBaglanti();
-    final k = TelsizKontrolcusu(baglanti: b, geriBildirim: SahteGeriBildirim());
+    final k = TelsizKontrolcusu(baglanti: b, geriBildirim: SahteGeriBildirim(), tanima: SahteTanima());
     b.gelsin({'tip': 'hos_geldin', 'rol': 'izleyici'});
     k.metinGonder('kalk');
     expect(b.giden, isEmpty);
@@ -138,7 +138,7 @@ void main() {
   test('izleyici konuşamaz ama ACİL DUR verebilir', () {
     final b = SahteBaglanti();
     final g = SahteGeriBildirim();
-    final k = TelsizKontrolcusu(baglanti: b, geriBildirim: g);
+    final k = TelsizKontrolcusu(baglanti: b, geriBildirim: g, tanima: SahteTanima());
     b.gelsin({'tip': 'hos_geldin', 'rol': 'izleyici'});
     k.metinGonder('kalk');
     expect(b.giden, isEmpty);
@@ -188,10 +188,72 @@ void main() {
     expect(k.kartlar.first.durum, KartDurumu.reddedildi);
     expect(k.kartlar.first.sebep, contains('ACİL DUR'));
   });
+
+  // ---------------------------------------------------------------- Faz 7
+  test('bas-konuş: tanıyıcı dinler, bırakınca METİN gider', () async {
+    final b = SahteBaglanti();
+    final t = SahteTanima();
+    final g = SahteGeriBildirim();
+    final k = TelsizKontrolcusu(baglanti: b, geriBildirim: g, tanima: t, enKisaBasma: Duration.zero);
+    b.gelsin({'tip': 'hos_geldin', 'rol': 'operator'});
+    await k.pttBasla();
+    expect(k.ptt, PttDurumu.dinliyor);
+    expect(t.dinliyor, isTrue);
+    expect(t.sonDil, 'tr_TR');
+    expect(k.kismiMetin, '20 metre', reason: 'ara sonuç ekranda');
+    await k.pttBirak();
+    final m = b.giden.single;
+    expect(m['tip'], 'metin');
+    expect(m['metin'], '20 metre yüksel');
+    expect(m['kaynak'], 'telefon_stt');
+    expect(k.kartlar.single.duyulan, '20 metre yüksel');
+    expect(k.kartlar.single.giris, 'ses');
+    expect(k.ptt, PttDurumu.bos);
+    expect(g.titresimler.take(2), [Titresim.basla, Titresim.birak]);
+  });
+
+  test('hiçbir şey duyulmazsa kart anlaşılmadı olur, metin gitmez', () async {
+    final b = SahteBaglanti();
+    final t = SahteTanima()..sonuc = null;
+    final k = TelsizKontrolcusu(
+      baglanti: b,
+      geriBildirim: SahteGeriBildirim(),
+      tanima: t,
+      enKisaBasma: Duration.zero,
+    );
+    b.gelsin({'tip': 'hos_geldin', 'rol': 'operator'});
+    await k.pttBasla();
+    await k.pttBirak();
+    expect(b.giden, isEmpty);
+    expect(k.kartlar.single.durum, KartDurumu.anlasilmadi);
+  });
+
+  test('çok kısa basış iptal edilir (cebe sürtünme)', () async {
+    final b = SahteBaglanti();
+    final t = SahteTanima();
+    final k = TelsizKontrolcusu(baglanti: b, geriBildirim: SahteGeriBildirim(), tanima: t);
+    b.gelsin({'tip': 'hos_geldin', 'rol': 'operator'});
+    await k.pttBasla();
+    await k.pttBirak(); // 250 ms'den kısa
+    expect(b.giden, isEmpty);
+    expect(k.kartlar, isEmpty);
+    expect(t.dinliyor, isFalse);
+  });
+
+  test('konuşurken bağlantı koparsa bas-konuş iptal olur', () async {
+    final b = SahteBaglanti();
+    final k = TelsizKontrolcusu(baglanti: b, geriBildirim: SahteGeriBildirim(), tanima: SahteTanima());
+    b.gelsin({'tip': 'hos_geldin', 'rol': 'operator'});
+    await k.pttBasla();
+    b.koptu();
+    await pumpEventQueue();
+    expect(k.ptt, PttDurumu.bos);
+    expect(k.kartlar, isEmpty);
+  });
 }
 
 TelsizKontrolcusu bagliKontrolcu(SahteBaglanti b) {
-  final k = TelsizKontrolcusu(baglanti: b, geriBildirim: SahteGeriBildirim());
+  final k = TelsizKontrolcusu(baglanti: b, geriBildirim: SahteGeriBildirim(), tanima: SahteTanima());
   b.gelsin({'tip': 'hos_geldin', 'rol': 'operator', 'yer_stt': false});
   return k;
 }

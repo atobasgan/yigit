@@ -11,6 +11,7 @@ import '../durum/telsiz_kontrolcusu.dart';
 const hizliKomutlar = ['kalk', 'in', 'eve dön', '10 metre yüksel', 'sağa dön', '5 saniye bekle'];
 
 /// Faz 5: Komut kartları, hızlı tuşlar ve yazılı komut. Faz 6: ACİL DUR.
+/// Faz 7: bas-konuş (telefonda tanıma).
 class TelsizEkrani extends StatefulWidget {
   const TelsizEkrani({super.key, required this.kontrolcu});
 
@@ -22,7 +23,6 @@ class TelsizEkrani extends StatefulWidget {
 
 class _TelsizEkraniState extends State<TelsizEkrani> {
   final _metin = TextEditingController();
-  PttDurumu _ptt = PttDurumu.bos;
 
   @override
   void dispose() {
@@ -66,7 +66,7 @@ class _TelsizEkraniState extends State<TelsizEkrani> {
                       child: Padding(
                         padding: EdgeInsets.all(24),
                         child: Text(
-                          'Komut yaz ya da hızlı tuşa bas.\nÖrnek: "önce 20 metre yüksel sonra kuzeye 50 metre git"',
+                          'Tuşa basılı tut, konuş, bırak. Ya da yaz / hızlı tuşa bas.\nÖrnek: "önce 20 metre yüksel sonra kuzeye 50 metre git"',
                           textAlign: TextAlign.center,
                         ),
                       ),
@@ -107,22 +107,21 @@ class _TelsizEkraniState extends State<TelsizEkrani> {
                 ),
               ),
             ),
+            // Konuşurken telefonun tanıyıcısının ara sonucu (canlı altyazı gibi)
+            if (k.kismiMetin != null && k.kismiMetin!.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                child: Text('"${k.kismiMetin}"', style: Theme.of(context).textTheme.titleMedium),
+              ),
             SafeArea(
               top: false,
               child: PttDugmesi(
-                durum: _ptt,
+                durum: k.ptt,
                 seviye: 0,
                 etkin: k.komutVerebilir,
-                basildi: () => setState(() => _ptt = PttDurumu.dinliyor),
-                birakildi: () {
-                  setState(() => _ptt = PttDurumu.bos);
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('Sesli komut Faz 7\'de. Şimdilik yaz ya da hızlı tuşa bas.'),
-                    ),
-                  );
-                },
-                iptal: () => setState(() => _ptt = PttDurumu.bos),
+                basildi: k.pttBasla,
+                birakildi: k.pttBirak,
+                iptal: k.pttIptal,
               ),
             ),
           ],

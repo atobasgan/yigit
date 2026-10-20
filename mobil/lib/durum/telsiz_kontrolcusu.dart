@@ -6,11 +6,12 @@ import '../ayarlar/ayarlar.dart';
 import '../baglanti/telsiz_istemcisi.dart';
 import '../geri_bildirim/geri_bildirimci.dart';
 import '../protokol/baglanti_adresi.dart';
+import '../ses/cihaz_tanima.dart';
 import 'komut_aciklama.dart';
 import 'modeller.dart';
 
 /// Uygulamanın beyni (Faz 4: bağlantı ve rol; Faz 5: komutlar ve kartlar;
-/// Faz 6: ACİL DUR ve güvenlik bildirimleri).
+/// Faz 6: ACİL DUR ve güvenlik bildirimleri; Faz 7: telefonda tanıma ile bas-konuş).
 ///
 /// Ekranlar bu nesneyi dinler (ChangeNotifier). Kontrolcü bağlantıdan gelen
 /// mesajları işler, durumu günceller ve notifyListeners() ile ekranlara
@@ -19,7 +20,9 @@ class TelsizKontrolcusu extends ChangeNotifier {
   TelsizKontrolcusu({
     required this.baglanti,
     required this.geriBildirim,
+    required this.tanima,
     this.ayarlar = const Ayarlar(),
+    this.enKisaBasma = const Duration(milliseconds: 250),
     this.enFazlaKart = 50,
   }) {
     baglanti.durum.addListener(_baglantiDegisti);
@@ -29,6 +32,12 @@ class TelsizKontrolcusu extends ChangeNotifier {
   /// Arayüz (interface): gerçekte TelsizIstemcisi, testlerde SahteBaglanti.
   final TelsizBaglantisi baglanti;
   final GeriBildirimci geriBildirim;
+
+  /// Telefonun konuşma tanıyıcısı (gerçekte SistemTanima, testte SahteTanima).
+  final CihazTanima tanima;
+
+  /// Bundan kısa basışlar yanlış dokunuş sayılır.
+  final Duration enKisaBasma;
 
   final int enFazlaKart;
 
@@ -46,6 +55,14 @@ class TelsizKontrolcusu extends ChangeNotifier {
 
   /// Üst şeritte gösterilen son önemli uyarı.
   String? bildirim;
+
+  PttDurumu ptt = PttDurumu.bos;
+
+  /// Konuşurken tanıyıcının ara sonucu (ekranda canlı gösterilir).
+  String? kismiMetin;
+  KonusmaKarti? _aktif;
+  DateTime? _basmaZamani;
+  bool _tanimaHazir = false;
 
   BaglantiDurumu get baglantiDurumu => baglanti.durum.value;
   bool get bagli => baglantiDurumu == BaglantiDurumu.bagli;
@@ -68,6 +85,87 @@ class TelsizKontrolcusu extends ChangeNotifier {
 
   void _baglantiDegisti() {
     if (bagli) bagliOldu = true;
+    // Konuşurken bağlantı koparsa yarım komut gitmesin.
+    if (!bagli && ptt != PttDurumu.bos) unawaited(pttIptal());
+    notifyListeners();
+  }
+
+  // ------------------------------------------------------------------ bas-konuş
+  /// Tuşa basıldı: telefonun tanıyıcısı dinlemeye başlar.
+  Future<void> pttBasla() async {
+    if (!komutVerebilir || ptt != PttDurumu.bos) return;
+    geriBildirim.titresim(Titresim.basla);
+    final kart = _yeniKart('ses');
+    _aktif = kart;
+    _basmaZamani = DateTime.now();
+    ptt = PttDurumu.dinliyor;
+    kismiMetin = null;
+    notifyListeners();
+    try {
+      if (!_tanimaHazir) _tanimaHazir = await tanima.hazirla();
+      if (!_tanimaHazir) throw StateError('konuşma tanıma bu cihazda kullanılamıyor');
+      await tanima.basla(
+        dil: ayarlar.dil,
+        cevrimdisi: ayarlar.cevrimdisiTanima,
+        kismi: (m) {
+          kismiMetin = m;
+          notifyListeners();
+        },
+      );
+    } catch (e) {
+      _kartiBitir(kart, KartDurumu.anlasilmadi, 'telefon tanıyıcısı başlamadı: $e');
+      _aktif = null;
+      ptt = PttDurumu.bos;
+      notifyListeners();
+    }
+  }
+
+  /// Tuş bırakıldı: tanıyıcının son sonucu beklenir, METİN olarak gönderilir.
+  Future<void> pttBirak() async {
+    final kart = _aktif;
+    if (ptt != PttDurumu.dinliyor || kart == null) return;
+    if (DateTime.now().difference(_basmaZamani ?? DateTime.now()) < enKisaBasma) {
+      await pttIptal(); // cebe sürtünme, yanlış dokunuş
+      return;
+    }
+    geriBildirim.titresim(Titresim.birak);
+    _gondermeZamani[kart.id] = DateTime.now();
+    ptt = PttDurumu.isleniyor;
+    notifyListeners();
+    try {
+      final sonuc = await tanima.bitir();
+      if (sonuc == null) {
+        _kartiBitir(kart, KartDurumu.anlasilmadi, 'ses duyulmadı');
+      } else {
+        kart
+          ..duyulan = sonuc.metin
+          ..sttKaynagi = 'telefon_stt'
+          ..durum = KartDurumu.isleniyor;
+        baglanti.gonder('metin', {
+          'id': kart.id,
+          'metin': sonuc.metin,
+          'kaynak': 'telefon_stt',
+          'guven': sonuc.guven,
+        });
+      }
+    } catch (e) {
+      _kartiBitir(kart, KartDurumu.anlasilmadi, 'tanıma hatası: $e');
+    }
+    _aktif = null;
+    ptt = PttDurumu.bos;
+    kismiMetin = null;
+    notifyListeners();
+  }
+
+  Future<void> pttIptal() async {
+    final kart = _aktif;
+    _aktif = null;
+    if (kart != null) {
+      await tanima.iptal();
+      kartlar.remove(kart);
+    }
+    ptt = PttDurumu.bos;
+    kismiMetin = null;
     notifyListeners();
   }
 

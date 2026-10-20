@@ -26,7 +26,7 @@ void main() {
 
   test('telefon <-> köprü: giriş, ping, gerçek parser JSON, güvenlik, anlaşılmayan', () async {
     final istemci = TelsizIstemcisi(cihazAdi: 'uyum_testi', pingAraligi: const Duration(milliseconds: 100));
-    final k = TelsizKontrolcusu(baglanti: istemci, geriBildirim: SahteGeriBildirim());
+    final k = TelsizKontrolcusu(baglanti: istemci, geriBildirim: SahteGeriBildirim(), tanima: SahteTanima());
     await k.baglan(BaglantiAdresi.coz(url!)!);
     await bekle(() => k.bagli, 'bağlantı');
     expect(k.rol, 'operator');
@@ -57,6 +57,17 @@ void main() {
     k.metinGonder('bugün hava nasıl');
     final anlamsiz = k.kartlar.first;
     await bekle(() => anlamsiz.durum == KartDurumu.anlasilmadi, 'anlaşılmadı');
+
+    // Faz 7: bas-konuş (telefon STT, burada sahte tanıyıcı) -> metin -> gerçek parser
+    await k.pttBasla();
+    await Future<void>.delayed(const Duration(milliseconds: 300));
+    final sesli = k.kartlar.first;
+    await k.pttBirak();
+    await bekle(() => sesli.adimlar.isNotEmpty, 'sesli komut');
+    expect(sesli.sttKaynagi, 'telefon_stt');
+    expect(sesli.adimlar, [
+      {'komut': 'yuksel', 'metre': 20.0},
+    ]);
 
     // Faz 6: ACİL DUR köprüden herkese yankılanır
     k.acilDur();

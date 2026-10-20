@@ -10,7 +10,12 @@ void main() {
   testWidgets('bağlan ekranı -> hos_geldin -> telsiz ekranı', (tester) async {
     SharedPreferences.setMockInitialValues({}); // testte gerçek depolama yok
     final b = SahteBaglanti();
-    final k = TelsizKontrolcusu(baglanti: b, geriBildirim: SahteGeriBildirim());
+    final k = TelsizKontrolcusu(
+      baglanti: b,
+      geriBildirim: SahteGeriBildirim(),
+      tanima: SahteTanima(),
+      enKisaBasma: Duration.zero,
+    );
     await tester.pumpWidget(TelsizUygulamasi(kontrolcu: k));
     expect(find.text('Bağlan'), findsOneWidget);
 
@@ -44,5 +49,15 @@ void main() {
     // Faz 6: ACİL DUR yer istasyonuna gider
     await tester.tap(find.text('ACİL DUR'));
     expect(b.giden.last['tip'], 'acil_dur');
+
+    // Faz 7: bas-konuş -> telefonun tanıyıcısı -> metin
+    final parmak = await tester.startGesture(tester.getCenter(find.text('BAS KONUŞ')));
+    await tester.pump();
+    expect(find.text('KONUŞ'), findsOneWidget);
+    expect(find.text('"20 metre"'), findsOneWidget, reason: 'ara sonuç canlı görünür');
+    await parmak.up();
+    await tester.pumpAndSettle();
+    expect(b.giden.last, containsPair('kaynak', 'telefon_stt'));
+    expect(b.giden.last, containsPair('metin', '20 metre yüksel'));
   });
 }

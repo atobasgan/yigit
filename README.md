@@ -19,6 +19,7 @@ izle.
 | 4 | Telefon istemcisi, bağlan ekranı | ChangeNotifier, arayüz + sahte nesne, Future/Stream/Timer, ping, yeniden bağlanma, uyum testi | [FAZ_04](docs/FAZ_04_istemci.md) |
 | 5 | Yazılı komut → JSON → kart | telefon yorumlamaz, JSON şeması, hızlı yol vs LLM, eşleştirme kuyruğu, gerçek parser | [FAZ_05](docs/FAZ_05_komut_ve_json.md) |
 | 6 | Güvenlik | ACİL DUR, izleyici, kalp atışı, telsiz koparsa dur, yarış durumu ve nesil sayacı, titreşim | [FAZ_06](docs/FAZ_06_guvenlik.md) |
+| 7 | Bas-konuş: telefon STT | platform eklentisi, speech_to_text, Completer, ara sonuç, Android/iOS izinleri | [FAZ_07](docs/FAZ_07_telefon_stt.md) |
 
 *(Tablo her fazda büyüyecek.)*
 

@@ -5,6 +5,7 @@ import 'package:telsiz/baglanti/telsiz_istemcisi.dart';
 import 'package:telsiz/durum/modeller.dart';
 import 'package:telsiz/geri_bildirim/geri_bildirimci.dart';
 import 'package:telsiz/protokol/baglanti_adresi.dart';
+import 'package:telsiz/ses/cihaz_tanima.dart';
 
 class SahteBaglanti implements TelsizBaglantisi {
   final _durum = ValueNotifier(BaglantiDurumu.kopuk);
@@ -47,4 +48,28 @@ class SahteGeriBildirim implements GeriBildirimci {
 
   @override
   void titresim(Titresim tur) => titresimler.add(tur);
+}
+
+class SahteTanima implements CihazTanima {
+  String? sonuc = '20 metre yüksel';
+  bool dinliyor = false;
+  String? sonDil;
+
+  @override
+  Future<bool> hazirla() async => true;
+  @override
+  Future<void> basla({required String dil, required bool cevrimdisi, void Function(String)? kismi}) async {
+    dinliyor = true;
+    sonDil = dil;
+    kismi?.call('20 metre');
+  }
+
+  @override
+  Future<TanimaSonucu?> bitir({Duration bekle = Duration.zero}) async {
+    dinliyor = false;
+    return sonuc == null ? null : TanimaSonucu(sonuc!, 0.9);
+  }
+
+  @override
+  Future<void> iptal() async => dinliyor = false;
 }

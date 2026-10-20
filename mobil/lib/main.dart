@@ -6,6 +6,7 @@ import 'baglanti/telsiz_istemcisi.dart';
 import 'durum/telsiz_kontrolcusu.dart';
 import 'geri_bildirim/geri_bildirimci.dart';
 import 'protokol/baglanti_adresi.dart';
+import 'ses/cihaz_tanima.dart';
 
 Future<void> main() async {
   // runApp'ten önce eklenti (shared_preferences) kullanacaksak gerekli.
@@ -14,6 +15,7 @@ Future<void> main() async {
   final kontrolcu = TelsizKontrolcusu(
     baglanti: TelsizIstemcisi(),
     geriBildirim: CihazGeriBildirimci(),
+    tanima: SistemTanima(),
     ayarlar: ayarlar,
   );
   runApp(TelsizUygulamasi(kontrolcu: kontrolcu));
