@@ -49,3 +49,15 @@ class KonusmaKarti {
   /// LLM'in / hızlı yolun ürettiği JSON (ekranda aynen gösterilir).
   String get komutJson => const JsonEncoder.withIndent('  ').convert({'adimlar': adimlar});
 }
+
+/// Konuşma nerede yazıya çevrilir?
+enum SttModu {
+  /// Yer istasyonunda STT varsa orada (daha doğru), yoksa telefonda.
+  otomatik,
+
+  /// Telefonun kendi tanıyıcısı (Faz 7); sunucuya sadece metin gider.
+  telefon,
+
+  /// Ham ses yer istasyonuna akar, orada yazıya çevrilir (Faz 8-9).
+  yer,
+}

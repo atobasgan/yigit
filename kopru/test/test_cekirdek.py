@@ -1,5 +1,6 @@
 """Cekirdek mantigi: sahte saat + sahte ROS ile (ag acilmaz)."""
 import json
+import struct
 
 import pytest
 
@@ -9,13 +10,19 @@ from mobile_bridge.cekirdek import HERKES, Ayarlar, RosArayuzu, TelsizCekirdegi
 
 class SahteRos(RosArayuzu):
     def __init__(self):
-        self.metinler, self.acil = [], 0
+        self.metinler, self.acil, self.konusmalar, self.stt = [], 0, [], []
 
     def metin_yayinla(self, metin):
         self.metinler.append(metin)
 
     def acil_dur_yayinla(self):
         self.acil += 1
+
+    def konusma_yayinla(self, konusma, kaynak):
+        self.konusmalar.append((konusma.konusma_id, kaynak))
+
+    def stt_baslat(self, konusma):
+        self.stt.append(konusma)
 
 
 class Saat:
@@ -33,7 +40,7 @@ def mesaj(cikti, tip):
 @pytest.fixture
 def ortam():
     ros, saat = SahteRos(), Saat()
-    return TelsizCekirdegi(ros, Ayarlar(token='gizli'), saat=saat), ros, saat
+    return TelsizCekirdegi(ros, Ayarlar(token='gizli'), saat=saat, stt_hazir=True), ros, saat
 
 
 def giris(c, ad='tel', rol='operator', token='gizli'):
@@ -85,12 +92,6 @@ def test_ping_pong(ortam):
     c, *_ = ortam
     i, _ = giris(c)
     assert mesaj(c.metin_cercevesi(i, p.json_yaz('ping', t=123)), 'pong')['t'] == 123
-
-
-def test_henuz_olmayan_mesaj(ortam):
-    c, *_ = ortam
-    i, _ = giris(c)
-    assert mesaj(c.metin_cercevesi(i, p.json_yaz('ptt_basla', id=1)), 'hata')['kod'] == 'desteklenmiyor'
 
 
 def test_komut_bekleyen_konusmayla_eslesir(ortam):
@@ -181,3 +182,73 @@ def test_iptal_edilen_sonuc_bekleyen_karta_reddedildi_olur(ortam):
     c.metin_cercevesi(i, p.json_yaz('metin', id=9, metin='önce on metre yüksel sonra doğuya git'))
     gb = mesaj(c.ros_geri_bildirim('iptal', 'ACİL DUR geldiği için "..." iptal edildi'), 'geri_bildirim')
     assert gb['id'] == 9 and gb['durum'] == 'reddedildi'
+
+
+# ---------------------------------------------------------------- Faz 8: ses
+def ses(c, i, kid, sure_s, parca=640):
+    pcm = struct.pack('<h', 1000) * int(16000 * sure_s)
+    for n, k in enumerate(range(0, len(pcm), parca)):
+        c.ikili_cerceve(i, p.ses_parcasi_yaz(kid, n, pcm[k:k + parca]))
+
+
+def test_bas_konus_sesi_birlesir_ve_stt_ye_gider(ortam):
+    c, ros, _ = ortam
+    i, cikti = giris(c)
+    assert mesaj(cikti, 'hos_geldin')['yer_stt'] is True
+    c.metin_cercevesi(i, p.json_yaz('ptt_basla', id=5))
+    ses(c, i, 5, 1.0)
+    isl = mesaj(c.metin_cercevesi(i, p.json_yaz('ptt_bitti', id=5)), 'isleniyor')
+    assert isl['sure_ms'] == 1000 and isl['kayip_parca'] == 0
+    assert ros.konusmalar == [(5, 'telefon')] and len(ros.stt) == 1
+    assert len(ros.stt[0].pcm()) == 32000                     # 1 sn x 16000 x 2 bayt
+    cikti = c.stt_sonucu(ros.stt[0], '20 metre yüksel', 230.4)
+    assert mesaj(cikti, 'duyuldu')['stt_ms'] == 230 and ros.metinler == ['20 metre yüksel']
+    assert mesaj(cikti, 'duyuldu')['kaynak'] == 'yer_stt'
+
+
+def test_parcalar_sirasiz_gelse_de_birlesir(ortam):
+    c, ros, _ = ortam
+    i, _ = giris(c)
+    c.metin_cercevesi(i, p.json_yaz('ptt_basla', id=1))
+    a, b = struct.pack('<h', 1) * 4000, struct.pack('<h', 2) * 4000
+    c.ikili_cerceve(i, p.ses_parcasi_yaz(1, 1, b))            # 2. parca once geldi
+    c.ikili_cerceve(i, p.ses_parcasi_yaz(1, 0, a))
+    c.ikili_cerceve(i, p.ses_parcasi_yaz(1, 1, b))            # tekrar gelen parca
+    c.metin_cercevesi(i, p.json_yaz('ptt_bitti', id=1))
+    assert ros.stt[0].pcm() == a + b
+
+
+def test_kisa_uzun_iptal_ve_eski_parca(ortam):
+    c, ros, _ = ortam
+    c.ayarlar.en_uzun_konusma_s = 1.0
+    i, _ = giris(c)
+    c.metin_cercevesi(i, p.json_yaz('ptt_basla', id=1))
+    ses(c, i, 1, 0.1)
+    cikti = c.metin_cercevesi(i, p.json_yaz('ptt_bitti', id=1))
+    assert 'çok kısa' in mesaj(cikti, 'anlasilmadi')['sebep']
+    c.metin_cercevesi(i, p.json_yaz('ptt_basla', id=2))
+    hata = c.ikili_cerceve(i, p.ses_parcasi_yaz(2, 0, b'\x00\x00' * 17000))
+    assert mesaj(hata, 'hata')['kod'] == 'konusma_cok_uzun'
+    c.metin_cercevesi(i, p.json_yaz('ptt_basla', id=3))
+    c.metin_cercevesi(i, p.json_yaz('ptt_iptal', id=3))
+    assert c.ikili_cerceve(i, p.ses_parcasi_yaz(3, 0, b'\x00\x00')) == []
+    assert mesaj(c.metin_cercevesi(i, p.json_yaz('ptt_bitti', id=3)), 'hata')['kod'] == 'konusma_yok'
+    assert ros.stt == []
+
+
+def test_izleyicinin_sesi_alinmaz(ortam):
+    c, ros, _ = ortam
+    giris(c, 'a')
+    b, _ = giris(c, 'b', rol='izleyici')
+    assert c.ikili_cerceve(b, p.ses_parcasi_yaz(1, 0, b'\x00\x00')) == []
+
+
+def test_yer_stt_yoksa_bilgilendirir():
+    ros = SahteRos()
+    c = TelsizCekirdegi(ros, Ayarlar(token='gizli'), saat=Saat(), stt_hazir=False)
+    i, cikti = giris(c)
+    assert mesaj(cikti, 'hos_geldin')['yer_stt'] is False
+    c.metin_cercevesi(i, p.json_yaz('ptt_basla', id=1))
+    ses(c, i, 1, 0.5)
+    sebep = mesaj(c.metin_cercevesi(i, p.json_yaz('ptt_bitti', id=1)), 'anlasilmadi')['sebep']
+    assert 'telefonda tanı' in sebep and ros.stt == []

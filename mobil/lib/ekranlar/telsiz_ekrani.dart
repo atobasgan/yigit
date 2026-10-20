@@ -11,7 +11,7 @@ import '../durum/telsiz_kontrolcusu.dart';
 const hizliKomutlar = ['kalk', 'in', 'eve dön', '10 metre yüksel', 'sağa dön', '5 saniye bekle'];
 
 /// Faz 5: Komut kartları, hızlı tuşlar ve yazılı komut. Faz 6: ACİL DUR.
-/// Faz 7: bas-konuş (telefonda tanıma).
+/// Faz 7: bas-konuş (telefonda tanıma). Faz 8: ham ses (yer STT).
 class TelsizEkrani extends StatefulWidget {
   const TelsizEkrani({super.key, required this.kontrolcu});
 
@@ -115,13 +115,28 @@ class _TelsizEkraniState extends State<TelsizEkrani> {
               ),
             SafeArea(
               top: false,
-              child: PttDugmesi(
-                durum: k.ptt,
-                seviye: 0,
-                etkin: k.komutVerebilir,
-                basildi: k.pttBasla,
-                birakildi: k.pttBirak,
-                iptal: k.pttIptal,
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const SizedBox(width: 72),
+                  PttDugmesi(
+                    durum: k.ptt,
+                    seviye: k.seviye, // mikrofon seviyesi: halka kalınlığı
+                    etkin: k.komutVerebilir,
+                    basildi: k.pttBasla,
+                    birakildi: k.pttBirak,
+                    iptal: k.pttIptal,
+                  ),
+                  // Hangi modda tanınıyor? (Faz 8: otomatik seçim)
+                  SizedBox(
+                    width: 72,
+                    child: Text(
+                      k.etkinMod == SttModu.yer ? 'yer\nSTT' : 'telefon\nSTT',
+                      textAlign: TextAlign.center,
+                      style: Theme.of(context).textTheme.labelSmall,
+                    ),
+                  ),
+                ],
               ),
             ),
           ],

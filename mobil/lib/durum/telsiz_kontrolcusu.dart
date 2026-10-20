@@ -6,21 +6,29 @@ import '../ayarlar/ayarlar.dart';
 import '../baglanti/telsiz_istemcisi.dart';
 import '../geri_bildirim/geri_bildirimci.dart';
 import '../protokol/baglanti_adresi.dart';
+import '../protokol/mesajlar.dart';
 import '../ses/cihaz_tanima.dart';
+import '../ses/halka_tampon.dart';
+import '../ses/mikrofon.dart';
+import '../ses/pcm_parcalayici.dart';
+import '../ses/seviye.dart';
 import 'komut_aciklama.dart';
 import 'modeller.dart';
 
-/// Uygulamanın beyni (Faz 4: bağlantı ve rol; Faz 5: komutlar ve kartlar;
-/// Faz 6: ACİL DUR ve güvenlik bildirimleri; Faz 7: telefonda tanıma ile bas-konuş).
+/// Uygulamanın beyni (Faz 4: bağlantı; 5: kartlar; 6: ACİL DUR; 7: telefon STT;
+/// Faz 8: ham ses akışı ve iki STT modu).
 ///
-/// Ekranlar bu nesneyi dinler (ChangeNotifier). Kontrolcü bağlantıdan gelen
-/// mesajları işler, durumu günceller ve notifyListeners() ile ekranlara
-/// "yeniden çiz" der. Ekranlar mantık içermez; sadece kontrolcüyü gösterir.
+/// Yer STT modu  : tuşa basınca ptt_basla + ön kayıt (300 ms) + canlı 20 ms
+///                 parçalar; bırakınca +son kayıt (150 ms) ve ptt_bitti.
+/// Telefon modu  : tuşa basınca cihaz tanıyıcısı dinler; bırakınca metin gider.
+/// Her iki modda da metni ANLAMA işi (normalize, hızlı yol, LLM, güvenlik)
+/// yer istasyonundaki command_parser + mission_executor'da kalır.
 class TelsizKontrolcusu extends ChangeNotifier {
   TelsizKontrolcusu({
     required this.baglanti,
-    required this.geriBildirim,
+    required this.mikrofon,
     required this.tanima,
+    required this.geriBildirim,
     this.ayarlar = const Ayarlar(),
     this.enKisaBasma = const Duration(milliseconds: 250),
     this.enFazlaKart = 50,
@@ -29,39 +37,37 @@ class TelsizKontrolcusu extends ChangeNotifier {
     _abonelik = baglanti.mesajlar.listen(_mesaj);
   }
 
-  /// Arayüz (interface): gerçekte TelsizIstemcisi, testlerde SahteBaglanti.
   final TelsizBaglantisi baglanti;
-  final GeriBildirimci geriBildirim;
-
-  /// Telefonun konuşma tanıyıcısı (gerçekte SistemTanima, testte SahteTanima).
+  final SesKaynagi mikrofon;
   final CihazTanima tanima;
-
-  /// Bundan kısa basışlar yanlış dokunuş sayılır.
+  final GeriBildirimci geriBildirim;
   final Duration enKisaBasma;
-
   final int enFazlaKart;
 
-  /// Değiştirmek için ayarlariGuncelle() kullan.
+  /// Değiştirmek için ayarlariGuncelle() kullan (mikrofon ve TTS de güncellenir).
   Ayarlar ayarlar;
-
-  /// Konuşma kartları, en yenisi başta.
-  final List<KonusmaKarti> kartlar = [];
-  final Map<int, DateTime> _gondermeZamani = {};
-  int _sonId = DateTime.now().millisecondsSinceEpoch % 1000000000;
   late final StreamSubscription<Map<String, dynamic>> _abonelik;
 
+  final List<KonusmaKarti> kartlar = [];
   String rol = 'operator';
   bool yerSttVar = false;
+  String? sttMotoru;
+  double enUzunKonusmaS = 15;
+  PttDurumu ptt = PttDurumu.bos;
+  double seviye = 0;
+  String? kismiMetin;
 
-  /// Üst şeritte gösterilen son önemli uyarı.
+  /// Üst şeritte gösterilen son önemli uyarı (telsiz koptu, acil dur, hata...).
   String? bildirim;
 
-  PttDurumu ptt = PttDurumu.bos;
-
-  /// Konuşurken tanıyıcının ara sonucu (ekranda canlı gösterilir).
-  String? kismiMetin;
+  final HalkaTampon _onKayit = HalkaTampon(msToBayt(300));
+  final PcmParcalayici _parcalayici = PcmParcalayici();
+  final Map<int, DateTime> _birakmaZamani = {};
   KonusmaKarti? _aktif;
   DateTime? _basmaZamani;
+  bool _akitiyor = false;
+  int _sira = 0;
+  int _sonId = DateTime.now().millisecondsSinceEpoch % 1000000000;
   bool _tanimaHazir = false;
 
   BaglantiDurumu get baglantiDurumu => baglanti.durum.value;
@@ -71,27 +77,65 @@ class TelsizKontrolcusu extends ChangeNotifier {
   /// Bu oturumda en az bir kez bağlanıldı mı? (Kopunca bağlan ekranına atmamak için.)
   bool bagliOldu = false;
 
+  /// Otomatik modda sunucuda STT varsa yer, yoksa telefon.
+  SttModu get etkinMod => switch (ayarlar.sttModu) {
+    SttModu.otomatik => yerSttVar ? SttModu.yer : SttModu.telefon,
+    final m => m,
+  };
+
+  // ------------------------------------------------------------------ bağlantı
   Future<void> baglan(BaglantiAdresi adres) => baglanti.baglan(adres, izleyici: ayarlar.izleyici);
 
   Future<void> kopar() async {
     bagliOldu = false;
+    await _mikrofonKapat();
     await baglanti.kopar();
-  }
-
-  Future<void> ayarlariGuncelle(Ayarlar yeni) async {
-    ayarlar = yeni;
-    notifyListeners();
   }
 
   void _baglantiDegisti() {
     if (bagli) bagliOldu = true;
-    // Konuşurken bağlantı koparsa yarım komut gitmesin.
-    if (!bagli && ptt != PttDurumu.bos) unawaited(pttIptal());
+    if (!bagli) {
+      if (ptt != PttDurumu.bos) unawaited(pttIptal());
+      unawaited(_mikrofonKapat());
+    }
     notifyListeners();
   }
 
+  // ------------------------------------------------------------------ ayarlar
+  Future<void> ayarlariGuncelle(Ayarlar yeni) async {
+    ayarlar = yeni;
+    await _onKayitDurumunuUygula();
+    notifyListeners();
+  }
+
+  /// Ön kayıt için mikrofon yer STT modunda, bağlıyken sürekli açık kalır
+  /// (veri telefondan çıkmaz; yalnızca son 300 ms halka tamponda tutulur).
+  Future<void> _onKayitDurumunuUygula() async {
+    final gerekli = bagli && rol == 'operator' && etkinMod == SttModu.yer && ayarlar.onKayit;
+    if (gerekli && !mikrofon.acik) {
+      await _mikrofonAc();
+    } else if (!gerekli && mikrofon.acik && ptt == PttDurumu.bos) {
+      await _mikrofonKapat();
+    }
+  }
+
+  Future<bool> _mikrofonAc() async {
+    if (mikrofon.acik) return true;
+    if (!await mikrofon.izinIste()) {
+      _bildir('mikrofon izni verilmedi');
+      return false;
+    }
+    await mikrofon.ac(_mikrofonVerisi, gurultuBastirma: ayarlar.gurultuBastirma);
+    return true;
+  }
+
+  Future<void> _mikrofonKapat() async {
+    _akitiyor = false;
+    _onKayit.temizle();
+    if (mikrofon.acik) await mikrofon.kapat();
+  }
+
   // ------------------------------------------------------------------ bas-konuş
-  /// Tuşa basıldı: telefonun tanıyıcısı dinlemeye başlar.
   Future<void> pttBasla() async {
     if (!komutVerebilir || ptt != PttDurumu.bos) return;
     geriBildirim.titresim(Titresim.basla);
@@ -101,58 +145,85 @@ class TelsizKontrolcusu extends ChangeNotifier {
     ptt = PttDurumu.dinliyor;
     kismiMetin = null;
     notifyListeners();
-    try {
-      if (!_tanimaHazir) _tanimaHazir = await tanima.hazirla();
-      if (!_tanimaHazir) throw StateError('konuşma tanıma bu cihazda kullanılamıyor');
-      await tanima.basla(
-        dil: ayarlar.dil,
-        cevrimdisi: ayarlar.cevrimdisiTanima,
-        kismi: (m) {
-          kismiMetin = m;
-          notifyListeners();
-        },
-      );
-    } catch (e) {
-      _kartiBitir(kart, KartDurumu.anlasilmadi, 'telefon tanıyıcısı başlamadı: $e');
-      _aktif = null;
-      ptt = PttDurumu.bos;
-      notifyListeners();
+
+    if (etkinMod == SttModu.yer) {
+      _sira = 0;
+      _parcalayici.sifirla();
+      baglanti.gonder('ptt_basla', {'id': kart.id});
+      final once = _onKayit.al();
+      _onKayit.temizle();
+      _akitiyor = true;
+      for (final p in _parcalayici.ekle(once)) {
+        _sesYolla(kart.id, p);
+      }
+      if (!await _mikrofonAc()) await pttIptal();
+    } else {
+      try {
+        if (!_tanimaHazir) _tanimaHazir = await tanima.hazirla();
+        if (!_tanimaHazir) throw StateError('konuşma tanıma bu cihazda kullanılamıyor');
+        await tanima.basla(
+          dil: ayarlar.dil,
+          cevrimdisi: ayarlar.cevrimdisiTanima,
+          kismi: (m) {
+            kismiMetin = m;
+            notifyListeners();
+          },
+        );
+      } catch (e) {
+        _kartiBitir(kart, KartDurumu.anlasilmadi, 'telefon tanıyıcısı başlamadı: $e');
+        _aktif = null;
+        ptt = PttDurumu.bos;
+        notifyListeners();
+      }
     }
   }
 
-  /// Tuş bırakıldı: tanıyıcının son sonucu beklenir, METİN olarak gönderilir.
   Future<void> pttBirak() async {
     final kart = _aktif;
     if (ptt != PttDurumu.dinliyor || kart == null) return;
-    if (DateTime.now().difference(_basmaZamani ?? DateTime.now()) < enKisaBasma) {
+    final basma = _basmaZamani ?? DateTime.now();
+    if (DateTime.now().difference(basma) < enKisaBasma) {
       await pttIptal(); // cebe sürtünme, yanlış dokunuş
       return;
     }
     geriBildirim.titresim(Titresim.birak);
-    _gondermeZamani[kart.id] = DateTime.now();
+    _birakmaZamani[kart.id] = DateTime.now();
     ptt = PttDurumu.isleniyor;
     notifyListeners();
-    try {
-      final sonuc = await tanima.bitir();
-      if (sonuc == null) {
-        _kartiBitir(kart, KartDurumu.anlasilmadi, 'ses duyulmadı');
-      } else {
-        kart
-          ..duyulan = sonuc.metin
-          ..sttKaynagi = 'telefon_stt'
-          ..durum = KartDurumu.isleniyor;
-        baglanti.gonder('metin', {
-          'id': kart.id,
-          'metin': sonuc.metin,
-          'kaynak': 'telefon_stt',
-          'guven': sonuc.guven,
-        });
+
+    if (etkinMod == SttModu.yer) {
+      // Son hece kesilmesin: tuştan sonra biraz daha kayıt.
+      await Future<void>.delayed(Duration(milliseconds: ayarlar.sonKayitMs));
+      _akitiyor = false;
+      final kalan = _parcalayici.bosalt();
+      if (kalan != null) _sesYolla(kart.id, kalan);
+      baglanti.gonder('ptt_bitti', {'id': kart.id, 'parca_sayisi': _sira});
+      kart.durum = KartDurumu.isleniyor;
+      if (!ayarlar.onKayit) await _mikrofonKapat();
+    } else {
+      try {
+        final sonuc = await tanima.bitir();
+        if (sonuc == null) {
+          _kartiBitir(kart, KartDurumu.anlasilmadi, 'ses duyulmadı');
+        } else {
+          kart
+            ..duyulan = sonuc.metin
+            ..sttKaynagi = 'telefon_stt'
+            ..durum = KartDurumu.isleniyor;
+          baglanti.gonder('metin', {
+            'id': kart.id,
+            'metin': sonuc.metin,
+            'kaynak': 'telefon_stt',
+            'guven': sonuc.guven,
+          });
+        }
+      } catch (e) {
+        _kartiBitir(kart, KartDurumu.anlasilmadi, 'tanıma hatası: $e');
       }
-    } catch (e) {
-      _kartiBitir(kart, KartDurumu.anlasilmadi, 'tanıma hatası: $e');
     }
     _aktif = null;
     ptt = PttDurumu.bos;
+    seviye = 0;
     kismiMetin = null;
     notifyListeners();
   }
@@ -161,18 +232,41 @@ class TelsizKontrolcusu extends ChangeNotifier {
     final kart = _aktif;
     _aktif = null;
     if (kart != null) {
-      await tanima.iptal();
+      if (etkinMod == SttModu.yer) {
+        _akitiyor = false;
+        _parcalayici.sifirla();
+        if (bagli) baglanti.gonder('ptt_iptal', {'id': kart.id});
+        if (!ayarlar.onKayit) await _mikrofonKapat();
+      } else {
+        await tanima.iptal();
+      }
       kartlar.remove(kart);
     }
     ptt = PttDurumu.bos;
+    seviye = 0;
     kismiMetin = null;
     notifyListeners();
   }
 
-  // ------------------------------------------------------------------ komut gönder
-  /// Yazıyla ya da hızlı tuşla komut. Telefon komutu kendisi YORUMLAMAZ:
-  /// metin yer istasyonundaki command_parser'dan geçer (normalize, hızlı yol,
-  /// LLM, güvenlik). Telefon yalnızca sonucu gösterir.
+  void _mikrofonVerisi(Uint8List veri) {
+    seviye = sesSeviyesi(veri);
+    final kart = _aktif;
+    if (_akitiyor && kart != null) {
+      for (final p in _parcalayici.ekle(veri)) {
+        _sesYolla(kart.id, p);
+      }
+      if (_sira * 0.02 > enUzunKonusmaS) unawaited(pttBirak()); // en uzun konuşma sınırı
+    } else if (ayarlar.onKayit) {
+      _onKayit.ekle(veri);
+    }
+    if (ptt == PttDurumu.dinliyor) notifyListeners();
+  }
+
+  void _sesYolla(int id, Uint8List pcm) => baglanti.sesGonder(sesParcasi(id, _sira++, pcm));
+
+  // ------------------------------------------------------------------ yazılı komut, acil
+  /// Yazıyla ya da hızlı tuşla komut. Ses gibi command_parser'dan geçer
+  /// (normalize, hızlı yol, LLM, güvenlik); telefon komutu kendisi YORUMLAMAZ.
   void metinGonder(String metin, {String giris = 'klavye'}) {
     final temiz = metin.trim();
     if (!komutVerebilir || temiz.isEmpty) return;
@@ -180,13 +274,12 @@ class TelsizKontrolcusu extends ChangeNotifier {
       ..duyulan = temiz
       ..sttKaynagi = giris
       ..durum = KartDurumu.isleniyor;
-    _gondermeZamani[kart.id] = DateTime.now();
+    _birakmaZamani[kart.id] = DateTime.now();
     baglanti.gonder('metin', {'id': kart.id, 'metin': temiz, 'kaynak': giris});
     notifyListeners();
   }
 
   /// ACİL DUR: STT ve LLM'e uğramadan /drone/emergency_stop. İzleyici de verebilir.
-  /// Bu, telefonun "yorum yapmadan" verdiği tek karardır.
   void acilDur() {
     if (!bagli) {
       _bildir('bağlantı yok: ACİL DUR gönderilemedi!');
@@ -205,7 +298,13 @@ class TelsizKontrolcusu extends ChangeNotifier {
       case 'hos_geldin':
         rol = m['rol'] as String? ?? 'izleyici';
         yerSttVar = m['yer_stt'] == true;
+        sttMotoru = m['stt_motoru'] as String?;
+        enUzunKonusmaS = (m['en_uzun_konusma_s'] as num?)?.toDouble() ?? 15;
         bildirim = rol == 'izleyici' ? 'izleyici olarak bağlandın (sadece ACİL DUR)' : null;
+        unawaited(_onKayitDurumunuUygula());
+      case 'isleniyor':
+        kart?.durum = KartDurumu.isleniyor;
+        if (m['kayip_parca'] case final int n when n > 0) kart?.olaylar.add('$n ses parçası kayıp');
       case 'duyuldu':
         final k = kart ?? _uzakKart(id);
         k
@@ -225,8 +324,8 @@ class TelsizKontrolcusu extends ChangeNotifier {
           ..kuyrugaEklendi = m['kuyruga_ekle'] == true
           ..parserMs = (m['parser_ms'] as num?)?.toDouble()
           ..durum = KartDurumu.komut;
-        final gonderme = id == null ? null : _gondermeZamani.remove(id);
-        if (gonderme != null) k.toplamGecikmeMs = DateTime.now().difference(gonderme).inMilliseconds;
+        final birakma = id == null ? null : _birakmaZamani.remove(id);
+        if (birakma != null) k.toplamGecikmeMs = DateTime.now().difference(birakma).inMilliseconds;
         geriBildirim.titresim(Titresim.kabul);
       case 'anlasilmadi':
         if (kart != null) {
@@ -248,9 +347,7 @@ class TelsizKontrolcusu extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Yürütücünün geri bildirimleri kartın durumunu ilerletir.
   void _geriBildirim(KonusmaKarti? kart, String durum, String mesaj) {
-    // Herkesi ilgilendiren güvenlik olayları: üst şeritte göster.
     if (durum == 'acil_dur' || durum == 'telsiz_koptu') {
       bildirim = mesaj;
       geriBildirim.titresim(Titresim.acil);
@@ -275,7 +372,7 @@ class TelsizKontrolcusu extends ChangeNotifier {
 
   // ------------------------------------------------------------------ yardımcılar
   KonusmaKarti _yeniKart(String giris) {
-    _sonId = (_sonId + 1) % 4000000000; // protokolde id uint32
+    _sonId = (_sonId + 1) % 4000000000;
     final kart = KonusmaKarti(id: _sonId, giris: giris);
     kartlar.insert(0, kart);
     if (kartlar.length > enFazlaKart) kartlar.removeLast();
@@ -301,12 +398,8 @@ class TelsizKontrolcusu extends ChangeNotifier {
     kart
       ..durum = durum
       ..sebep = sebep;
-    _gondermeZamani.remove(kart.id);
+    _birakmaZamani.remove(kart.id);
   }
-
-  /// Kart başlığı: komut varsa okunur hali, yoksa duyulan metin.
-  static String kartBasligi(KonusmaKarti k) =>
-      k.adimlar.isNotEmpty ? adimlarAciklamasi(k.adimlar) : (k.duyulan ?? '…');
 
   void _bildir(String mesaj) {
     bildirim = mesaj;
@@ -318,10 +411,15 @@ class TelsizKontrolcusu extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Kart başlığı: komut varsa okunur hali, yoksa duyulan metin.
+  static String kartBasligi(KonusmaKarti k) =>
+      k.adimlar.isNotEmpty ? adimlarAciklamasi(k.adimlar) : (k.duyulan ?? '…');
+
   @override
   void dispose() {
     baglanti.durum.removeListener(_baglantiDegisti);
     unawaited(_abonelik.cancel());
+    unawaited(_mikrofonKapat());
     super.dispose();
   }
 }

@@ -11,14 +11,15 @@ from mobile_bridge.drone_yolu import yolu_ekle
 pytestmark = pytest.mark.skipif(not yolu_ekle(), reason='drone reposu yok (DRONE_REPO)')
 
 
-def senaryo(adimlar, cozucu=None):
+def senaryo(adimlar, cozucu=None, stt=None):
     from command_parser.komut_cozucu import KomutCozucu
     from mobile_bridge.cekirdek import Ayarlar, TelsizCekirdegi
     from mobile_bridge.deneme_sunucusu import SanalDrone
     from mobile_bridge.sunucu import TelsizSunucusu
 
-    drone = SanalDrone(cozucu or KomutCozucu(), hiz_katsayisi=100)
-    sunucu = TelsizSunucusu(TelsizCekirdegi(drone, Ayarlar(token='T')), '127.0.0.1', 0)
+    drone = SanalDrone(cozucu or KomutCozucu(), stt, hiz_katsayisi=100)
+    sunucu = TelsizSunucusu(TelsizCekirdegi(drone, Ayarlar(token='T'), stt_hazir=stt is not None),
+                            '127.0.0.1', 0)
     drone.sunucu = sunucu
     gelen = []
 
@@ -84,3 +85,13 @@ def test_cozulurken_acil_dur_sonucu_iptal_eder():
     iptal = tipte(gelen, 'geri_bildirim', id=2, durum='reddedildi')
     assert iptal and 'ACİL DUR' in iptal[0]['mesaj']
     assert abs(drone.durum.poz.irtifa - 10) < 1e-6, 'drone yükselmemeli'
+
+
+def test_ses_sahte_stt_ile_gercek_parser():
+    from mobile_bridge.deneme_sunucusu import SahteSTT
+    _, gelen = senaryo([p.json_yaz('ptt_basla', id=5),
+                        p.ses_parcasi_yaz(5, 0, b'\x01\x00' * 8000),
+                        p.json_yaz('ptt_bitti', id=5)], stt=SahteSTT('yirmi metre yüksel'))
+    assert tipte(gelen, 'isleniyor', id=5)[0]['sure_ms'] == 500
+    assert tipte(gelen, 'duyuldu', id=5)[0]['kaynak'] == 'yer_stt'
+    assert tipte(gelen, 'komut', id=5)[0]['adimlar'] == [{'komut': 'yuksel', 'metre': 20.0}]

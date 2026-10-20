@@ -9,6 +9,7 @@ Telefon gercek kopruyle ayni protokolu konusur. Bu sunucu ROS yerine:
 
     python3 -m mobile_bridge.deneme_sunucusu --token ABC
     python3 -m mobile_bridge.deneme_sunucusu --llm http://127.0.0.1:8080
+    python3 -m mobile_bridge.deneme_sunucusu --sahte-stt "kalk"   # her sese "kalk" de (Faz 8)
 """
 import argparse
 import asyncio
@@ -51,11 +52,24 @@ def yerel_ip():
         s.close()
 
 
+class SahteSTT:
+    """Her sese ayni metni 'duyan' STT (gercek Whisper Faz 9'da)."""
+    ad = 'sahte'
+    hazir = True
+
+    def __init__(self, metin):
+        self.metin = metin
+
+    def yaziya_cevir(self, pcm, hz):
+        return self.metin
+
+
 class SanalDrone(RosArayuzu):
     """ROS'un yerine: parser + guvenlik + yurutme benzetimi."""
 
-    def __init__(self, cozucu, hiz_katsayisi=1.0):
+    def __init__(self, cozucu, stt=None, hiz_katsayisi=1.0):
         self.cozucu = cozucu
+        self.stt = stt
         self.hiz_katsayisi = hiz_katsayisi
         self.guvenlik = Guvenlik(Limitler(max_irtifa=120.0))
         self.durum = AracDurumu(poz=Poz(), havada=False, batarya=1.0)
@@ -122,6 +136,21 @@ class SanalDrone(RosArayuzu):
             self._gorev = None
         print('  ACİL DUR', flush=True)
 
+    def stt_baslat(self, konusma):
+        async def calistir():
+            t0 = time.perf_counter()
+            dongu = asyncio.get_running_loop()
+            try:      # STT de saniyeler surebilir: ayri thread'de
+                metin = await dongu.run_in_executor(None, self.stt.yaziya_cevir, konusma.pcm(),
+                                                    protokol.ORNEKLEME_HZ)
+                hata = None
+            except Exception as e:
+                metin, hata = '', f'STT hatası: {e}'
+            sure = (time.perf_counter() - t0) * 1000
+            print(f'  STT #{konusma.konusma_id}: "{metin}" ({sure:.0f} ms)', flush=True)
+            self._yolla(self.cek.stt_sonucu(konusma, metin, sure, hata))
+        asyncio.ensure_future(calistir())
+
     def _sure(self, hedef):
         a, b = self.durum.poz, hedef.poz
         if hedef.tip == 'bekle':
@@ -140,16 +169,18 @@ async def calis(args, hazir=None):
             print(f'LLM {args.llm}: ısınma {llm.isit().sure_ms:.0f} ms')
         else:
             print(f'LLM {args.llm} ERİŞİLEMİYOR (sadece hızlı yol)')
-    drone = SanalDrone(KomutCozucu(llm=llm), hiz_katsayisi=args.hiz)
+    stt = SahteSTT(args.sahte_stt) if args.sahte_stt is not None else None
+    drone = SanalDrone(KomutCozucu(llm=llm), stt, hiz_katsayisi=args.hiz)
     token = args.token or os.environ.get('TELSIZ_TOKEN') or secrets.token_urlsafe(9)
-    cekirdek = TelsizCekirdegi(drone, Ayarlar(token=token, baglanti_koparsa=args.koparsa))
+    cekirdek = TelsizCekirdegi(drone, Ayarlar(token=token, baglanti_koparsa=args.koparsa),
+                               stt_hazir=stt is not None, stt_adi=stt.ad if stt else 'yok')
     sunucu = TelsizSunucusu(cekirdek, args.host, args.port)
     drone.sunucu = sunucu
     gorev = asyncio.ensure_future(sunucu.calis())
     await sunucu.hazir_bekle()
     adres = protokol.baglanti_adresi(args.ilan_ip or yerel_ip(), sunucu.port, token)
     print(f'\nDeneme sunucusu (ROS yok). Bağlantı adresi:\n{adres}')
-    print(f'LLM: {args.llm or "yok"} | Ctrl+C ile çık\n', flush=True)
+    print(f'STT: {stt.ad if stt else "yok"} | LLM: {args.llm or "yok"} | Ctrl+C ile çık\n', flush=True)
     if hazir:
         hazir(sunucu, adres)
     await gorev
@@ -165,6 +196,7 @@ def arguman_cozucu():
     ap.add_argument('--hiz', type=float, default=1.0, help='sanal yürütme hız katsayısı')
     ap.add_argument('--koparsa', default='dur', choices=['dur', 'devam'],
                     help='operatör bağlantısı koparsa ne olsun')
+    ap.add_argument('--sahte-stt', default=None, help='her ses için bu metni döndür (test)')
     return ap
 
 

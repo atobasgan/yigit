@@ -7,6 +7,7 @@ import 'durum/telsiz_kontrolcusu.dart';
 import 'geri_bildirim/geri_bildirimci.dart';
 import 'protokol/baglanti_adresi.dart';
 import 'ses/cihaz_tanima.dart';
+import 'ses/mikrofon.dart';
 
 Future<void> main() async {
   // runApp'ten önce eklenti (shared_preferences) kullanacaksak gerekli.
@@ -16,6 +17,7 @@ Future<void> main() async {
     baglanti: TelsizIstemcisi(),
     geriBildirim: CihazGeriBildirimci(),
     tanima: SistemTanima(),
+    mikrofon: Mikrofon(),
     ayarlar: ayarlar,
   );
   runApp(TelsizUygulamasi(kontrolcu: kontrolcu));

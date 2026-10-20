@@ -1,5 +1,7 @@
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../durum/modeller.dart';
+
 /// Kullanıcı ayarları (telefonda saklanır). Her fazda yeni ayarlar eklenir.
 class Ayarlar {
   const Ayarlar({
@@ -8,6 +10,10 @@ class Ayarlar {
     this.izleyici = false,
     this.cevrimdisiTanima = false,
     this.dil = 'tr_TR',
+    this.sttModu = SttModu.otomatik,
+    this.onKayit = true,
+    this.sonKayitMs = 150,
+    this.gurultuBastirma = false,
   });
 
   final String sunucuAdresi;
@@ -22,12 +28,34 @@ class Ayarlar {
   /// Konuşma tanıma dili.
   final String dil;
 
-  Ayarlar copyWith({String? sunucuAdresi, String? token, bool? izleyici, bool? cevrimdisiTanima}) => Ayarlar(
+  final SttModu sttModu;
+
+  /// Yer STT modunda mikrofonu açık tutup tuştan önceki 300 ms'yi de gönder.
+  final bool onKayit;
+
+  /// Tuş bırakıldıktan sonra son hece kesilmesin diye kayda devam süresi.
+  final int sonKayitMs;
+  final bool gurultuBastirma;
+
+  Ayarlar copyWith({
+    String? sunucuAdresi,
+    String? token,
+    bool? izleyici,
+    bool? cevrimdisiTanima,
+    SttModu? sttModu,
+    bool? onKayit,
+    int? sonKayitMs,
+    bool? gurultuBastirma,
+  }) => Ayarlar(
     sunucuAdresi: sunucuAdresi ?? this.sunucuAdresi,
     token: token ?? this.token,
     izleyici: izleyici ?? this.izleyici,
     cevrimdisiTanima: cevrimdisiTanima ?? this.cevrimdisiTanima,
     dil: dil,
+    sttModu: sttModu ?? this.sttModu,
+    onKayit: onKayit ?? this.onKayit,
+    sonKayitMs: sonKayitMs ?? this.sonKayitMs,
+    gurultuBastirma: gurultuBastirma ?? this.gurultuBastirma,
   );
 }
 
@@ -41,6 +69,10 @@ class AyarDeposu {
       token: p.getString('token') ?? '',
       izleyici: p.getBool('izleyici') ?? false,
       cevrimdisiTanima: p.getBool('cevrimdisiTanima') ?? false,
+      sttModu: SttModu.values.asNameMap()[p.getString('sttModu')] ?? SttModu.otomatik,
+      onKayit: p.getBool('onKayit') ?? true,
+      sonKayitMs: p.getInt('sonKayitMs') ?? 150,
+      gurultuBastirma: p.getBool('gurultuBastirma') ?? false,
     );
   }
 
@@ -50,5 +82,9 @@ class AyarDeposu {
     await p.setString('token', a.token);
     await p.setBool('izleyici', a.izleyici);
     await p.setBool('cevrimdisiTanima', a.cevrimdisiTanima);
+    await p.setString('sttModu', a.sttModu.name);
+    await p.setBool('onKayit', a.onKayit);
+    await p.setInt('sonKayitMs', a.sonKayitMs);
+    await p.setBool('gurultuBastirma', a.gurultuBastirma);
   }
 }

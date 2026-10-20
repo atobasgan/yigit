@@ -14,6 +14,7 @@ void main() {
       baglanti: b,
       geriBildirim: SahteGeriBildirim(),
       tanima: SahteTanima(),
+      mikrofon: SahteMikrofon(),
       enKisaBasma: Duration.zero,
     );
     await tester.pumpWidget(TelsizUygulamasi(kontrolcu: k));

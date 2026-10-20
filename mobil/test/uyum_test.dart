@@ -26,7 +26,13 @@ void main() {
 
   test('telefon <-> köprü: giriş, ping, gerçek parser JSON, güvenlik, anlaşılmayan', () async {
     final istemci = TelsizIstemcisi(cihazAdi: 'uyum_testi', pingAraligi: const Duration(milliseconds: 100));
-    final k = TelsizKontrolcusu(baglanti: istemci, geriBildirim: SahteGeriBildirim(), tanima: SahteTanima());
+    final mikrofon = SahteMikrofon();
+    final k = TelsizKontrolcusu(
+      baglanti: istemci,
+      geriBildirim: SahteGeriBildirim(),
+      tanima: SahteTanima(),
+      mikrofon: mikrofon,
+    );
     await k.baglan(BaglantiAdresi.coz(url!)!);
     await bekle(() => k.bagli, 'bağlantı');
     expect(k.rol, 'operator');
@@ -58,13 +64,18 @@ void main() {
     final anlamsiz = k.kartlar.first;
     await bekle(() => anlamsiz.durum == KartDurumu.anlasilmadi, 'anlaşılmadı');
 
-    // Faz 7: bas-konuş (telefon STT, burada sahte tanıyıcı) -> metin -> gerçek parser
+    // Faz 8: bas-konuş -> ham ses (ikili çerçeveler) -> köprü (sahte STT) -> gerçek parser
+    expect(k.yerSttVar, isTrue);
     await k.pttBasla();
-    await Future<void>.delayed(const Duration(milliseconds: 300));
     final sesli = k.kartlar.first;
+    for (var i = 0; i < 50; i++) {
+      mikrofon.besle(20, deger: 3); // gerçek zamanlı: 20 ms'de bir parça
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+    }
     await k.pttBirak();
-    await bekle(() => sesli.adimlar.isNotEmpty, 'sesli komut');
-    expect(sesli.sttKaynagi, 'telefon_stt');
+    await bekle(() => sesli.adimlar.isNotEmpty || sesli.sebep != null, 'sesli komut');
+    expect(sesli.sebep, isNull);
+    expect(sesli.sttKaynagi, 'yer_stt');
     expect(sesli.adimlar, [
       {'komut': 'yuksel', 'metre': 20.0},
     ]);

@@ -7,6 +7,7 @@ uzerinden yapar. Boylece tum mantik ag acmadan, sahte bir ROS ile birim test
 edilebilir (test/test_cekirdek.py).
 Faz 3: giris, roller, ping, metin.  Faz 5: komut / geri bildirim eslestirme.
 Faz 6: ACIL DUR, kalp atisi, telsiz koparsa dur, iptal edilen sonuclar.
+Faz 8: bas-konus ses akisi (parcalari birlestir, STT'ye ver).
 """
 from collections import deque
 from dataclasses import dataclass, field
@@ -14,6 +15,7 @@ import hmac
 import time
 
 from . import protokol as p
+from .ses import Konusma, sure_s
 
 HERKES = object()          # alici: tum dogrulanmis istemciler
 
@@ -25,6 +27,8 @@ class Ayarlar:
     eslestirme_zaman_asimi_s: float = 15.0
     baglanti_zaman_asimi_s: float = 3.0
     baglanti_koparsa: str = 'dur'          # dur | devam
+    en_uzun_konusma_s: float = 15.0
+    en_kisa_konusma_s: float = 0.25
 
 
 class RosArayuzu:
@@ -38,6 +42,13 @@ class RosArayuzu:
         """/drone/emergency_stop'a yayinla (yurutucu ve parser dinler)."""
         raise NotImplementedError
 
+    def konusma_yayinla(self, konusma, kaynak):
+        """Ham konusmayi ROS'a ver (Faz 10: drone_interfaces/AudioUtterance). Istege bagli."""
+
+    def stt_baslat(self, konusma):
+        """Sesi ARKA PLANDA yaziya cevir; bitince cekirdek.stt_sonucu cagrilir."""
+        raise NotImplementedError
+
 
 @dataclass(eq=False)          # kimlige gore karsilastir; sozluk anahtari olabilsin
 class Istemci:
@@ -46,6 +57,7 @@ class Istemci:
     rol: str = 'izleyici'
     cihaz: str = ''
     son_mesaj_t: float = 0.0
+    konusma: Konusma = None          # su an basili tutulan bas-konus
 
 
 @dataclass
@@ -58,8 +70,10 @@ class _Bekleyen:
 
 class TelsizCekirdegi:
 
-    def __init__(self, ros, ayarlar=None, saat=time.monotonic):
+    def __init__(self, ros, ayarlar=None, saat=time.monotonic, stt_hazir=False, stt_adi='yok'):
         self.ros = ros
+        self.stt_hazir = stt_hazir      # yer istasyonunda STT var mi? (telefon modu secer)
+        self.stt_adi = stt_adi
         self.ayarlar = ayarlar or Ayarlar()
         self.saat = saat
         self.istemciler = []
@@ -69,7 +83,7 @@ class TelsizCekirdegi:
         self._son_komut_t = 0.0
         self._kopma_bildirildi = False
         self.havada = None              # drone havada mi? None = bilinmiyor (Faz 10: telemetri)
-        self.sayaclar = {'metin': 0, 'red': 0, 'acil_dur': 0}
+        self.sayaclar = {'konusma': 0, 'metin': 0, 'red': 0, 'acil_dur': 0, 'kayip_parca': 0}
 
     # ------------------------------------------------------------------ baglanti
     def baglandi(self, ad):
@@ -110,13 +124,38 @@ class TelsizCekirdegi:
         if istemci is not self.operator:
             return [(istemci, p.json_yaz('hata', kod='operator_degil',
                                          mesaj='komut vermek için operatör olmalısın'))]
+        if tip == 'ptt_basla':
+            istemci.konusma = Konusma(konusma_id=mesaj['id'], t_basla=self.saat())
+            return []
+        if tip == 'ptt_iptal':
+            if istemci.konusma and istemci.konusma.konusma_id == mesaj['id']:
+                istemci.konusma = None
+            return []
+        if tip == 'ptt_bitti':
+            return self._ptt_bitti(istemci, mesaj)
         if tip == 'metin':
             return self._metin(istemci, mesaj)
-        return [(istemci, p.json_yaz('hata', kod='desteklenmiyor',
-                                     mesaj=f'"{tip}" sonraki fazlarda eklenecek'))]
+        return []
 
     def ikili_cerceve(self, istemci, veri):
-        return []                      # ses Faz 8'de
+        """Ses parcasi: [id][sira][PCM]. Yalnizca operatorden ve acik bir konusmaya."""
+        if not istemci.dogrulandi or istemci is not self.operator:
+            return []
+        try:
+            konusma_id, sira, pcm = p.ses_parcasi_coz(veri)
+        except p.ProtokolHatasi as e:
+            return [(istemci, p.json_yaz('hata', kod=e.kod, mesaj=str(e)))]
+        istemci.son_mesaj_t = self.saat()   # ses de kalp atisi sayilir
+        k = istemci.konusma
+        if k is None or k.konusma_id != konusma_id:
+            return []                   # iptal edilmis ya da eski konusma
+        en_fazla = int(self.ayarlar.en_uzun_konusma_s * p.ORNEKLEME_HZ * p.ORNEK_BAYT)
+        if not k.ekle(sira, pcm, en_fazla):
+            istemci.konusma = None
+            sinir = self.ayarlar.en_uzun_konusma_s
+            return [(istemci, p.json_yaz('hata', kod='konusma_cok_uzun', id=konusma_id,
+                                         mesaj=f'konuşma {sinir:g} sn sınırını aştı'))]
+        return []
 
     # ------------------------------------------------------------------ mesaj tipleri
     def _merhaba(self, istemci, mesaj):
@@ -143,9 +182,45 @@ class TelsizCekirdegi:
                     'hata', kod='operator_dolu',
                     mesaj='başka bir operatör bağlı; izleyici olarak bağlandın')))
         cikti.insert(0, (istemci, p.json_yaz(
-            'hos_geldin', surum=p.SURUM, rol=istemci.rol, yer_stt=False,
+            'hos_geldin', surum=p.SURUM, rol=istemci.rol,
+            yer_stt=self.stt_hazir, stt_motoru=self.stt_adi,
+            ses={'bicim': 'pcm16', 'hz': p.ORNEKLEME_HZ, 'kanal': 1},
+            en_uzun_konusma_s=self.ayarlar.en_uzun_konusma_s,
             sunucu_saati=time.time())))
         return cikti
+
+    def _ptt_bitti(self, istemci, mesaj):
+        k = istemci.konusma
+        if k is None or k.konusma_id != mesaj['id']:
+            return [(istemci, p.json_yaz('hata', kod='konusma_yok', id=mesaj['id'],
+                                         mesaj='bu id ile başlatılmış konuşma yok'))]
+        istemci.konusma = None
+        k.t_bitti = self.saat()
+        pcm = k.pcm()
+        sure = sure_s(pcm)
+        eksik = k.eksik_parcalar()
+        if eksik:
+            self.sayaclar['kayip_parca'] += len(eksik)
+        if sure < self.ayarlar.en_kisa_konusma_s:
+            return [(istemci, p.json_yaz('anlasilmadi', id=k.konusma_id,
+                                         sebep=f'konuşma çok kısa ({sure * 1000:.0f} ms)'))]
+        self.sayaclar['konusma'] += 1
+        self.ros.konusma_yayinla(k, 'telefon')
+        if not self.stt_hazir:
+            return [(istemci, p.json_yaz(
+                'anlasilmadi', id=k.konusma_id,
+                sebep='yer istasyonunda STT yok; ayarlardan "telefonda tanı" moduna geç'))]
+        self.ros.stt_baslat(k)
+        return [(istemci, p.json_yaz('isleniyor', id=k.konusma_id, sure_ms=round(sure * 1000),
+                                     kayip_parca=len(eksik)))]
+
+    def stt_sonucu(self, konusma, metin, sure_ms, hata=None):
+        """Yer istasyonundaki STT bitti (baska thread'den sunucu.disaridan ile gelir)."""
+        if hata or not metin:
+            return [(HERKES, p.json_yaz('anlasilmadi', id=konusma.konusma_id,
+                                        sebep=hata or 'ses yazıya çevrilemedi (boş)', stt_ms=sure_ms))]
+        return self._metni_gonder(self.operator, konusma.konusma_id, metin, kaynak='yer_stt',
+                                  stt_ms=round(sure_ms))
 
     def _metin(self, istemci, mesaj):
         metin = mesaj['metin'].strip()

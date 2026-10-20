@@ -6,6 +6,7 @@ import 'package:telsiz/durum/modeller.dart';
 import 'package:telsiz/geri_bildirim/geri_bildirimci.dart';
 import 'package:telsiz/protokol/baglanti_adresi.dart';
 import 'package:telsiz/ses/cihaz_tanima.dart';
+import 'package:telsiz/ses/mikrofon.dart';
 
 class SahteBaglanti implements TelsizBaglantisi {
   final _durum = ValueNotifier(BaglantiDurumu.kopuk);
@@ -72,4 +73,29 @@ class SahteTanima implements CihazTanima {
 
   @override
   Future<void> iptal() async => dinliyor = false;
+}
+
+class SahteMikrofon implements SesKaynagi {
+  void Function(Uint8List)? _veri;
+  bool izin = true;
+  int acilma = 0;
+
+  @override
+  bool get acik => _veri != null;
+  @override
+  Future<bool> izinIste() async => izin;
+  @override
+  Future<void> ac(void Function(Uint8List veri) veri, {bool gurultuBastirma = false}) async {
+    _veri = veri;
+    acilma++;
+  }
+
+  @override
+  Future<void> kapat() async => _veri = null;
+
+  /// [ms] kadar ses besle; her bayt [deger].
+  void besle(int ms, {int deger = 1}) {
+    final n = 16000 * 2 * ms ~/ 1000;
+    _veri?.call(Uint8List(n)..fillRange(0, n, deger));
+  }
 }

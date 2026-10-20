@@ -20,6 +20,7 @@ izle.
 | 5 | Yazılı komut → JSON → kart | telefon yorumlamaz, JSON şeması, hızlı yol vs LLM, eşleştirme kuyruğu, gerçek parser | [FAZ_05](docs/FAZ_05_komut_ve_json.md) |
 | 6 | Güvenlik | ACİL DUR, izleyici, kalp atışı, telsiz koparsa dur, yarış durumu ve nesil sayacı, titreşim | [FAZ_06](docs/FAZ_06_guvenlik.md) |
 | 7 | Bas-konuş: telefon STT | platform eklentisi, speech_to_text, Completer, ara sonuç, Android/iOS izinleri | [FAZ_07](docs/FAZ_07_telefon_stt.md) |
+| 8 | Ham ses akışı | dijital ses (16 kHz PCM16), bant hesabı, 20 ms parçalar, halka tampon/ön kayıt, ikili çerçeveler, iki STT modu | [FAZ_08](docs/FAZ_08_ham_ses.md) |
 
 *(Tablo her fazda büyüyecek.)*
 
