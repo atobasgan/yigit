@@ -14,17 +14,27 @@ izle.
 | Faz | Konu | Öğrenilenler | Döküman |
 |---|---|---|---|
 | 1 | Flutter iskeleti, bas-konuş tuşu | widget, state, tema, `Listener`, animasyon, widget testi | [FAZ_01](docs/FAZ_01_iskelet.md) |
+| 2 | Protokol (Dart + Python) | JSON vs ikili çerçeve, bayt sırası, doğrulama, ortak test vektörü | [FAZ_02](docs/FAZ_02_protokol.md) |
 
 *(Tablo her fazda büyüyecek.)*
 
 ## Bir faza dönmek
 
-Her fazın sonu bir git etiketi ile işaretli:
+Her fazın son hali ayrı bir dalda durur (`faz-01`, `faz-02`, …); `main` en son hal:
 
 ```bash
-git checkout faz-01     # o fazdaki koda dön
-git checkout main       # son hale dön
-git diff faz-01 faz-02  # iki faz arasında neler değişti?
+git checkout faz-01           # o fazdaki koda dön
+git checkout main             # son hale dön
+git diff faz-01 faz-02        # iki faz arasında neler değişti?
+git log --oneline             # her commit bir faz
+```
+
+## Klasörler
+
+```
+mobil/   Flutter uygulaması (telefon)
+kopru/   Python: yer istasyonu köprüsü (telefon <-> ROS 2)
+docs/    her fazın öğretici açıklaması
 ```
 
 ## Gerekenler
