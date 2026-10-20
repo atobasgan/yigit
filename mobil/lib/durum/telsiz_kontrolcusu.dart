@@ -4,23 +4,31 @@ import 'package:flutter/foundation.dart';
 
 import '../ayarlar/ayarlar.dart';
 import '../baglanti/telsiz_istemcisi.dart';
+import '../geri_bildirim/geri_bildirimci.dart';
 import '../protokol/baglanti_adresi.dart';
 import 'komut_aciklama.dart';
 import 'modeller.dart';
 
-/// Uygulamanın beyni (Faz 4: bağlantı ve rol; Faz 5: komutlar ve kartlar).
+/// Uygulamanın beyni (Faz 4: bağlantı ve rol; Faz 5: komutlar ve kartlar;
+/// Faz 6: ACİL DUR ve güvenlik bildirimleri).
 ///
 /// Ekranlar bu nesneyi dinler (ChangeNotifier). Kontrolcü bağlantıdan gelen
 /// mesajları işler, durumu günceller ve notifyListeners() ile ekranlara
 /// "yeniden çiz" der. Ekranlar mantık içermez; sadece kontrolcüyü gösterir.
 class TelsizKontrolcusu extends ChangeNotifier {
-  TelsizKontrolcusu({required this.baglanti, this.ayarlar = const Ayarlar(), this.enFazlaKart = 50}) {
+  TelsizKontrolcusu({
+    required this.baglanti,
+    required this.geriBildirim,
+    this.ayarlar = const Ayarlar(),
+    this.enFazlaKart = 50,
+  }) {
     baglanti.durum.addListener(_baglantiDegisti);
     _abonelik = baglanti.mesajlar.listen(_mesaj);
   }
 
   /// Arayüz (interface): gerçekte TelsizIstemcisi, testlerde SahteBaglanti.
   final TelsizBaglantisi baglanti;
+  final GeriBildirimci geriBildirim;
 
   final int enFazlaKart;
 
@@ -79,6 +87,18 @@ class TelsizKontrolcusu extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// ACİL DUR: STT ve LLM'e uğramadan /drone/emergency_stop. İzleyici de verebilir.
+  /// Bu, telefonun "yorum yapmadan" verdiği tek karardır.
+  void acilDur() {
+    if (!bagli) {
+      _bildir('bağlantı yok: ACİL DUR gönderilemedi!');
+      return;
+    }
+    baglanti.gonder('acil_dur');
+    geriBildirim.titresim(Titresim.acil);
+    _bildir('ACİL DUR gönderildi');
+  }
+
   // ------------------------------------------------------------------ gelen mesajlar
   void _mesaj(Map<String, dynamic> m) {
     final id = m['id'] as int?;
@@ -87,7 +107,7 @@ class TelsizKontrolcusu extends ChangeNotifier {
       case 'hos_geldin':
         rol = m['rol'] as String? ?? 'izleyici';
         yerSttVar = m['yer_stt'] == true;
-        bildirim = rol == 'izleyici' ? 'izleyici olarak bağlandın' : null;
+        bildirim = rol == 'izleyici' ? 'izleyici olarak bağlandın (sadece ACİL DUR)' : null;
       case 'duyuldu':
         final k = kart ?? _uzakKart(id);
         k
@@ -109,8 +129,12 @@ class TelsizKontrolcusu extends ChangeNotifier {
           ..durum = KartDurumu.komut;
         final gonderme = id == null ? null : _gondermeZamani.remove(id);
         if (gonderme != null) k.toplamGecikmeMs = DateTime.now().difference(gonderme).inMilliseconds;
+        geriBildirim.titresim(Titresim.kabul);
       case 'anlasilmadi':
-        if (kart != null) _kartiBitir(kart, KartDurumu.anlasilmadi, m['sebep'] as String?);
+        if (kart != null) {
+          _kartiBitir(kart, KartDurumu.anlasilmadi, m['sebep'] as String?);
+          geriBildirim.titresim(Titresim.red);
+        }
       case 'geri_bildirim':
         _geriBildirim(kart, m['durum'] as String? ?? '', m['mesaj'] as String? ?? '');
       case 'hata':
@@ -128,6 +152,12 @@ class TelsizKontrolcusu extends ChangeNotifier {
 
   /// Yürütücünün geri bildirimleri kartın durumunu ilerletir.
   void _geriBildirim(KonusmaKarti? kart, String durum, String mesaj) {
+    // Herkesi ilgilendiren güvenlik olayları: üst şeritte göster.
+    if (durum == 'acil_dur' || durum == 'telsiz_koptu') {
+      bildirim = mesaj;
+      geriBildirim.titresim(Titresim.acil);
+      return;
+    }
     if (kart == null) {
       if (durum == 'reddedildi' || durum == 'hata') bildirim = mesaj;
       return;
@@ -141,6 +171,7 @@ class TelsizKontrolcusu extends ChangeNotifier {
       case 'reddedildi':
       case 'hata':
         _kartiBitir(kart, KartDurumu.reddedildi, mesaj);
+        geriBildirim.titresim(Titresim.red);
     }
   }
 
@@ -178,6 +209,11 @@ class TelsizKontrolcusu extends ChangeNotifier {
   /// Kart başlığı: komut varsa okunur hali, yoksa duyulan metin.
   static String kartBasligi(KonusmaKarti k) =>
       k.adimlar.isNotEmpty ? adimlarAciklamasi(k.adimlar) : (k.duyulan ?? '…');
+
+  void _bildir(String mesaj) {
+    bildirim = mesaj;
+    notifyListeners();
+  }
 
   void bildirimiKapat() {
     bildirim = null;

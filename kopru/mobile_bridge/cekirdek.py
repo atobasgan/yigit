@@ -6,6 +6,7 @@ metotla cekirdege verilir; cekirdek telefonlara gidecek mesajlari
 uzerinden yapar. Boylece tum mantik ag acmadan, sahte bir ROS ile birim test
 edilebilir (test/test_cekirdek.py).
 Faz 3: giris, roller, ping, metin.  Faz 5: komut / geri bildirim eslestirme.
+Faz 6: ACIL DUR, kalp atisi, telsiz koparsa dur, iptal edilen sonuclar.
 """
 from collections import deque
 from dataclasses import dataclass, field
@@ -22,6 +23,8 @@ class Ayarlar:
     token: str = ''
     tek_operator: bool = True
     eslestirme_zaman_asimi_s: float = 15.0
+    baglanti_zaman_asimi_s: float = 3.0
+    baglanti_koparsa: str = 'dur'          # dur | devam
 
 
 class RosArayuzu:
@@ -29,6 +32,10 @@ class RosArayuzu:
 
     def metin_yayinla(self, metin):
         """Metni /voice/text'e yayinla (command_parser dinler)."""
+        raise NotImplementedError
+
+    def acil_dur_yayinla(self):
+        """/drone/emergency_stop'a yayinla (yurutucu ve parser dinler)."""
         raise NotImplementedError
 
 
@@ -60,7 +67,9 @@ class TelsizCekirdegi:
         self._bekleyen = deque()        # metni yayinlanan, komutu beklenen konusmalar
         self._son_komut_id = None
         self._son_komut_t = 0.0
-        self.sayaclar = {'metin': 0, 'red': 0}
+        self._kopma_bildirildi = False
+        self.havada = None              # drone havada mi? None = bilinmiyor (Faz 10: telemetri)
+        self.sayaclar = {'metin': 0, 'red': 0, 'acil_dur': 0}
 
     # ------------------------------------------------------------------ baglanti
     def baglandi(self, ad):
@@ -69,11 +78,13 @@ class TelsizCekirdegi:
         return istemci
 
     def koptu(self, istemci):
+        cikti = []
         if istemci in self.istemciler:
             self.istemciler.remove(istemci)
         if istemci is self.operator:
             self.operator = None       # operatorluk bosa cikti; siradaki telefon alabilir
-        return []
+            cikti += self._operator_kayboldu('operatör bağlantısı kapandı')
+        return cikti
 
     # ------------------------------------------------------------------ gelenler
     def metin_cercevesi(self, istemci, ham):
@@ -90,6 +101,12 @@ class TelsizCekirdegi:
             return [(istemci, p.json_yaz('hata', kod='yetkisiz', mesaj='önce merhaba ile giriş yap'))]
         if tip == 'ping':
             return [(istemci, p.json_yaz('pong', t=mesaj.get('t'), sunucu_saati=time.time()))]
+        if tip == 'acil_dur':
+            # Guvenlik: izleyici dahil her dogrulanmis istemci durdurabilir.
+            self.sayaclar['acil_dur'] += 1
+            self.ros.acil_dur_yayinla()
+            return [(HERKES, p.json_yaz('geri_bildirim', id=None, durum='acil_dur',
+                                        mesaj=f'ACİL DUR ({istemci.cihaz or istemci.ad})'))]
         if istemci is not self.operator:
             return [(istemci, p.json_yaz('hata', kod='operator_degil',
                                          mesaj='komut vermek için operatör olmalısın'))]
@@ -118,6 +135,7 @@ class TelsizCekirdegi:
         if istenen == 'operator' and (self.operator is None or not self.ayarlar.tek_operator):
             istemci.rol = 'operator'
             self.operator = istemci
+            self._kopma_bildirildi = False
         else:
             istemci.rol = 'izleyici'
             if istenen == 'operator':
@@ -166,6 +184,11 @@ class TelsizCekirdegi:
     def ros_geri_bildirim(self, durum, mesaj):
         """/drone/feedback geldi. Parser'in 'anlamadim' cevabi bekleyen konusmaya baglanir;
         yurutucunun geri bildirimleri (yurutuyor, tamamlandi...) son komutun kartina gider."""
+        if durum == 'iptal':
+            # Parser bu konusmanin sonucunu ACIL DUR yuzunden atti.
+            bekleyen = self._eslestir()
+            return [(HERKES, p.json_yaz('geri_bildirim', id=bekleyen.konusma_id if bekleyen else None,
+                                        durum='reddedildi', mesaj=mesaj))]
         if durum == 'reddedildi' and mesaj.startswith('anlamadım'):
             bekleyen = self._eslestir()
             self.sayaclar['red'] += 1
@@ -178,5 +201,23 @@ class TelsizCekirdegi:
 
     # ------------------------------------------------------------------ zamanlayici
     def tik(self):
-        """Duzenli cagrilir (0.5 sn). Faz 6'da kalp atisi kontrolu buraya gelecek."""
+        """Duzenli cagrilir (0.5 sn): operatorun kalp atisi (ping) kontrolu."""
+        op = self.operator
+        if op is None or self._kopma_bildirildi:
+            return []
+        if self.saat() - op.son_mesaj_t > self.ayarlar.baglanti_zaman_asimi_s:
+            return self._operator_kayboldu(
+                f'operatörden {self.ayarlar.baglanti_zaman_asimi_s:g} sn sinyal yok')
         return []
+
+    def _operator_kayboldu(self, sebep):
+        """Telsiz koptu: ayara gore drone'u durdur. Bir kopma icin bir kez."""
+        if self._kopma_bildirildi:
+            return []
+        self._kopma_bildirildi = True
+        eylem = 'devam ediyor'
+        if self.ayarlar.baglanti_koparsa == 'dur' and self.havada is not False:
+            self.ros.acil_dur_yayinla()
+            eylem = 'drone yerinde asılı kalıyor'
+        return [(HERKES, p.json_yaz('geri_bildirim', id=None, durum='telsiz_koptu',
+                                    mesaj=f'{sebep}; {eylem}'))]

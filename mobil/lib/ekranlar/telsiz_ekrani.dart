@@ -10,7 +10,7 @@ import '../durum/telsiz_kontrolcusu.dart';
 /// telefon komutu kendisi yorumlamaz, güvenlik katmanı her zaman çalışır.
 const hizliKomutlar = ['kalk', 'in', 'eve dön', '10 metre yüksel', 'sağa dön', '5 saniye bekle'];
 
-/// Faz 5: Komut kartları, hızlı tuşlar ve yazılı komut.
+/// Faz 5: Komut kartları, hızlı tuşlar ve yazılı komut. Faz 6: ACİL DUR.
 class TelsizEkrani extends StatefulWidget {
   const TelsizEkrani({super.key, required this.kontrolcu});
 
@@ -48,12 +48,7 @@ class _TelsizEkraniState extends State<TelsizEkrani> {
             IconButton(tooltip: 'Bağlantıyı kes', icon: const Icon(Icons.link_off), onPressed: k.kopar),
             Padding(
               padding: const EdgeInsets.only(right: 8),
-              child: AcilDurDugmesi(
-                etkin: k.bagli,
-                onBasildi: () => ScaffoldMessenger.of(
-                  context,
-                ).showSnackBar(const SnackBar(content: Text('ACİL DUR Faz 6\'da yer istasyonuna gidecek'))),
-              ),
+              child: AcilDurDugmesi(onBasildi: k.acilDur, etkin: k.bagli),
             ),
           ],
         ),
@@ -62,6 +57,7 @@ class _TelsizEkraniState extends State<TelsizEkrani> {
             if (k.bildirim != null)
               MaterialBanner(
                 content: Text(k.bildirim!),
+                backgroundColor: Theme.of(context).colorScheme.errorContainer,
                 actions: [TextButton(onPressed: k.bildirimiKapat, child: const Text('Tamam'))],
               ),
             Expanded(

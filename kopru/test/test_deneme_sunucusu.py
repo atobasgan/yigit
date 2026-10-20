@@ -11,13 +11,13 @@ from mobile_bridge.drone_yolu import yolu_ekle
 pytestmark = pytest.mark.skipif(not yolu_ekle(), reason='drone reposu yok (DRONE_REPO)')
 
 
-def senaryo(adimlar):
+def senaryo(adimlar, cozucu=None):
     from command_parser.komut_cozucu import KomutCozucu
     from mobile_bridge.cekirdek import Ayarlar, TelsizCekirdegi
     from mobile_bridge.deneme_sunucusu import SanalDrone
     from mobile_bridge.sunucu import TelsizSunucusu
 
-    drone = SanalDrone(KomutCozucu(), hiz_katsayisi=100)
+    drone = SanalDrone(cozucu or KomutCozucu(), hiz_katsayisi=100)
     sunucu = TelsizSunucusu(TelsizCekirdegi(drone, Ayarlar(token='T')), '127.0.0.1', 0)
     drone.sunucu = sunucu
     gelen = []
@@ -62,3 +62,25 @@ def test_gercek_parser_json_ve_guvenlik():
     assert red and 'sınır' in red[0]['mesaj']
     assert tipte(gelen, 'anlasilmadi', id=3)
     assert drone.durum.havada and abs(drone.durum.poz.irtifa - 10) < 1e-6
+
+
+def test_cozulurken_acil_dur_sonucu_iptal_eder():
+    """LLM saniyelerce dusunurken ACIL DUR basilirsa gecikmeli sonuc yurutulmemeli."""
+    import time
+
+    from command_parser.komut_cozucu import KomutCozucu
+
+    class YavasCozucu(KomutCozucu):           # LLM'i taklit: 'yavaş' iceren cumle 0.5 sn surer
+        def coz(self, ham_metin):
+            if 'yavaş' in ham_metin:
+                time.sleep(0.5)
+                return super().coz('10 metre yüksel')
+            return super().coz(ham_metin)
+
+    drone, gelen = senaryo([p.json_yaz('metin', id=1, metin='kalk'), 0.3,
+                            p.json_yaz('metin', id=2, metin='yavaş yavaş biraz yüksel'), 0.1,
+                            p.json_yaz('acil_dur')], cozucu=YavasCozucu())
+    assert not tipte(gelen, 'komut', id=2), 'iptal edilen komut yayınlanmamalı'
+    iptal = tipte(gelen, 'geri_bildirim', id=2, durum='reddedildi')
+    assert iptal and 'ACİL DUR' in iptal[0]['mesaj']
+    assert abs(drone.durum.poz.irtifa - 10) < 1e-6, 'drone yükselmemeli'

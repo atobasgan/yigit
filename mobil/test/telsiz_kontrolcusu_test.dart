@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:telsiz/durum/modeller.dart';
 import 'package:telsiz/durum/telsiz_kontrolcusu.dart';
+import 'package:telsiz/geri_bildirim/geri_bildirimci.dart';
 import 'package:telsiz/protokol/baglanti_adresi.dart';
 
 import 'sahteler.dart';
@@ -8,7 +9,7 @@ import 'sahteler.dart';
 void main() {
   test('hos_geldin gelince bağlı ve operatör', () async {
     final b = SahteBaglanti();
-    final k = TelsizKontrolcusu(baglanti: b);
+    final k = TelsizKontrolcusu(baglanti: b, geriBildirim: SahteGeriBildirim());
     var bildirimSayisi = 0;
     k.addListener(() => bildirimSayisi++);
 
@@ -23,7 +24,7 @@ void main() {
 
   test('izleyici komut veremez ve bilgilendirilir', () {
     final b = SahteBaglanti();
-    final k = TelsizKontrolcusu(baglanti: b);
+    final k = TelsizKontrolcusu(baglanti: b, geriBildirim: SahteGeriBildirim());
     b.gelsin({'tip': 'hos_geldin', 'rol': 'izleyici'});
     expect(k.komutVerebilir, isFalse);
     expect(k.bildirim, contains('izleyici'));
@@ -31,7 +32,7 @@ void main() {
 
   test('bağlantı koparsa ekran kalır, kullanıcı koparırsa bağlan ekranına döner', () async {
     final b = SahteBaglanti();
-    final k = TelsizKontrolcusu(baglanti: b);
+    final k = TelsizKontrolcusu(baglanti: b, geriBildirim: SahteGeriBildirim());
     b.gelsin({'tip': 'hos_geldin', 'rol': 'operator'});
     b.koptu();
     expect(k.bagli, isFalse);
@@ -42,7 +43,7 @@ void main() {
 
   test('sunucu hatası bildirime yazılır', () {
     final b = SahteBaglanti();
-    final k = TelsizKontrolcusu(baglanti: b);
+    final k = TelsizKontrolcusu(baglanti: b, geriBildirim: SahteGeriBildirim());
     b.gelsin({'tip': 'hata', 'kod': 'yetkisiz', 'mesaj': 'token hatalı'});
     expect(k.bildirim, 'token hatalı');
   });
@@ -125,17 +126,72 @@ void main() {
 
   test('izleyici komut gönderemez; başkasının komutu uzak kart olur', () {
     final b = SahteBaglanti();
-    final k = TelsizKontrolcusu(baglanti: b);
+    final k = TelsizKontrolcusu(baglanti: b, geriBildirim: SahteGeriBildirim());
     b.gelsin({'tip': 'hos_geldin', 'rol': 'izleyici'});
     k.metinGonder('kalk');
     expect(b.giden, isEmpty);
     b.gelsin({'tip': 'duyuldu', 'id': 77, 'metin': 'kalk', 'kaynak': 'klavye'});
     expect(k.kartlar.single.giris, 'uzak');
   });
+
+  // ---------------------------------------------------------------- Faz 6
+  test('izleyici konuşamaz ama ACİL DUR verebilir', () {
+    final b = SahteBaglanti();
+    final g = SahteGeriBildirim();
+    final k = TelsizKontrolcusu(baglanti: b, geriBildirim: g);
+    b.gelsin({'tip': 'hos_geldin', 'rol': 'izleyici'});
+    k.metinGonder('kalk');
+    expect(b.giden, isEmpty);
+    k.acilDur();
+    expect(b.tipler, ['acil_dur']);
+    expect(g.titresimler.last, Titresim.acil);
+  });
+
+  test('bağlantı yokken ACİL DUR kullanıcıyı uyarır', () {
+    final b = SahteBaglanti();
+    final k = bagliKontrolcu(b);
+    b.koptu();
+    k.acilDur();
+    expect(b.giden, isEmpty);
+    expect(k.bildirim, contains('gönderilemedi'));
+  });
+
+  test('telsiz koptu ve acil dur olayları üst şeride gelir', () {
+    final b = SahteBaglanti();
+    final k = bagliKontrolcu(b);
+    b.gelsin({
+      'tip': 'geri_bildirim',
+      'id': null,
+      'durum': 'telsiz_koptu',
+      'mesaj': 'operatörden 3 sn sinyal yok; drone yerinde asılı kalıyor',
+    });
+    expect(k.bildirim, contains('asılı'));
+    b.gelsin({
+      'tip': 'geri_bildirim',
+      'id': null,
+      'durum': 'acil_dur',
+      'mesaj': 'ACİL DUR (izleyici telefon)',
+    });
+    expect(k.bildirim, 'ACİL DUR (izleyici telefon)');
+  });
+
+  test('ACİL DUR yüzünden iptal edilen LLM sonucu kartta reddedildi görünür', () {
+    final b = SahteBaglanti();
+    final k = bagliKontrolcu(b);
+    k.metinGonder('önce on metre yüksel sonra doğuya otuz metre git');
+    b.gelsin({
+      'tip': 'geri_bildirim',
+      'id': b.giden.last['id'],
+      'durum': 'reddedildi',
+      'mesaj': 'ACİL DUR geldiği için "..." iptal edildi',
+    });
+    expect(k.kartlar.first.durum, KartDurumu.reddedildi);
+    expect(k.kartlar.first.sebep, contains('ACİL DUR'));
+  });
 }
 
 TelsizKontrolcusu bagliKontrolcu(SahteBaglanti b) {
-  final k = TelsizKontrolcusu(baglanti: b);
+  final k = TelsizKontrolcusu(baglanti: b, geriBildirim: SahteGeriBildirim());
   b.gelsin({'tip': 'hos_geldin', 'rol': 'operator', 'yer_stt': false});
   return k;
 }

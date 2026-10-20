@@ -10,10 +10,13 @@ from mobile_bridge.sunucu import TelsizSunucusu
 
 class SahteRos(RosArayuzu):
     def __init__(self):
-        self.metinler = []
+        self.metinler, self.acil = [], 0
 
     def metin_yayinla(self, metin):
         self.metinler.append(metin)
+
+    def acil_dur_yayinla(self):
+        self.acil += 1
 
 
 async def sunucuyla(senaryo):
@@ -50,3 +53,14 @@ def test_yanlis_yol_reddedilir():
                 return e.rcvd.code
     _, kod = asyncio.run(sunucuyla(senaryo))
     assert kod == 4404
+
+
+def test_acil_dur_uctan_uca():
+    satirlar = []
+
+    async def senaryo(port):
+        await sahte_telefon.calistir(f'ws://127.0.0.1:{port}/telsiz?token=T', acil=True,
+                                     bekle_s=0.3, cikti=satirlar.append)
+    ros, _ = asyncio.run(sunucuyla(senaryo))
+    # 1: ACIL DUR tusu, 2: operator baglantiyi kapatti (drone havada olabilir -> guvenli taraf)
+    assert ros.acil == 2 and 'acil_dur' in '\n'.join(satirlar)

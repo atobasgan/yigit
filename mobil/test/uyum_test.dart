@@ -11,6 +11,8 @@ import 'package:telsiz/durum/modeller.dart';
 import 'package:telsiz/durum/telsiz_kontrolcusu.dart';
 import 'package:telsiz/protokol/baglanti_adresi.dart';
 
+import 'sahteler.dart';
+
 Future<void> bekle(bool Function() kosul, [String ne = 'koşul']) async {
   final son = DateTime.now().add(const Duration(seconds: 8));
   while (!kosul()) {
@@ -24,7 +26,7 @@ void main() {
 
   test('telefon <-> köprü: giriş, ping, gerçek parser JSON, güvenlik, anlaşılmayan', () async {
     final istemci = TelsizIstemcisi(cihazAdi: 'uyum_testi', pingAraligi: const Duration(milliseconds: 100));
-    final k = TelsizKontrolcusu(baglanti: istemci);
+    final k = TelsizKontrolcusu(baglanti: istemci, geriBildirim: SahteGeriBildirim());
     await k.baglan(BaglantiAdresi.coz(url!)!);
     await bekle(() => k.bagli, 'bağlantı');
     expect(k.rol, 'operator');
@@ -35,7 +37,7 @@ void main() {
     final kalk = k.kartlar.first;
     await bekle(() => kalk.durum == KartDurumu.tamamlandi, 'kalk tamamlandı');
     expect(kalk.adimlar, [
-      {'komut': 'kalk'}
+      {'komut': 'kalk'},
     ]);
     expect(kalk.komutKaynagi, 'hizli_yol');
 
@@ -44,7 +46,7 @@ void main() {
     await bekle(() => yuksel.adimlar.isNotEmpty, 'yüksel');
     expect(yuksel.normalize, '20 m yüksel');
     expect(yuksel.adimlar, [
-      {'komut': 'yuksel', 'metre': 20.0}
+      {'komut': 'yuksel', 'metre': 20.0},
     ]);
 
     k.metinGonder('beş yüz metre yüksel');
@@ -55,6 +57,10 @@ void main() {
     k.metinGonder('bugün hava nasıl');
     final anlamsiz = k.kartlar.first;
     await bekle(() => anlamsiz.durum == KartDurumu.anlasilmadi, 'anlaşılmadı');
+
+    // Faz 6: ACİL DUR köprüden herkese yankılanır
+    k.acilDur();
+    await bekle(() => (k.bildirim ?? '').startsWith('ACİL DUR ('), 'acil dur yankısı');
     await k.kopar();
   }, skip: url == null ? 'TELSIZ_UYUM_URL yok (./scripts/uyum_testi.sh)' : false);
 }

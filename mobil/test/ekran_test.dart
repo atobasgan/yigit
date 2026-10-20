@@ -10,7 +10,7 @@ void main() {
   testWidgets('bağlan ekranı -> hos_geldin -> telsiz ekranı', (tester) async {
     SharedPreferences.setMockInitialValues({}); // testte gerçek depolama yok
     final b = SahteBaglanti();
-    final k = TelsizKontrolcusu(baglanti: b);
+    final k = TelsizKontrolcusu(baglanti: b, geriBildirim: SahteGeriBildirim());
     await tester.pumpWidget(TelsizUygulamasi(kontrolcu: k));
     expect(find.text('Bağlan'), findsOneWidget);
 
@@ -40,5 +40,9 @@ void main() {
     await tester.pump();
     expect(find.text('HIZLI YOL'), findsOneWidget);
     expect(find.textContaining('"komut": "eve_don"'), findsOneWidget);
+
+    // Faz 6: ACİL DUR yer istasyonuna gider
+    await tester.tap(find.text('ACİL DUR'));
+    expect(b.giden.last['tip'], 'acil_dur');
   });
 }

@@ -9,10 +9,13 @@ from mobile_bridge.cekirdek import HERKES, Ayarlar, RosArayuzu, TelsizCekirdegi
 
 class SahteRos(RosArayuzu):
     def __init__(self):
-        self.metinler = []
+        self.metinler, self.acil = [], 0
 
     def metin_yayinla(self, metin):
         self.metinler.append(metin)
+
+    def acil_dur_yayinla(self):
+        self.acil += 1
 
 
 class Saat:
@@ -61,6 +64,7 @@ def test_tek_operator(ortam):
     assert mesaj(cikti, 'hata')['kod'] == 'operator_dolu'
     assert mesaj(c.metin_cercevesi(b, p.json_yaz('metin', id=1, metin='kalk')), 'hata')['kod'] \
         == 'operator_degil'
+    c.havada = False                             # (yerdeyken kopma dur gondermez)
     c.koptu(a)                                   # operator ayrilinca yer bosalir
     _, cikti = giris(c, 'c')
     assert mesaj(cikti, 'hos_geldin')['rol'] == 'operator'
@@ -123,3 +127,57 @@ def test_eslestirme_zaman_asimi(ortam):
     c.metin_cercevesi(i, p.json_yaz('metin', id=1, metin='kalk'))
     saat.t += 60
     assert mesaj(c.ros_komut({'adimlar': []}), 'komut')['id'] is None
+
+
+# ---------------------------------------------------------------- Faz 6: guvenlik
+def test_izleyici_de_acil_dur_verebilir(ortam):
+    c, ros, _ = ortam
+    giris(c, 'a')
+    b, _ = giris(c, 'b', rol='izleyici')
+    cikti = c.metin_cercevesi(b, p.json_yaz('acil_dur'))
+    assert ros.acil == 1 and cikti[0][0] is HERKES
+    assert mesaj(cikti, 'geri_bildirim')['durum'] == 'acil_dur'
+
+
+def test_kalp_atisi_kesilince_dur(ortam):
+    c, ros, saat = ortam
+    i, _ = giris(c)
+    saat.t += 2
+    assert c.tik() == []
+    c.metin_cercevesi(i, p.json_yaz('ping', t=1))      # sinyal geldi, sayac sifirlandi
+    saat.t += 3.5
+    cikti = c.tik()
+    assert ros.acil == 1 and mesaj(cikti, 'geri_bildirim')['durum'] == 'telsiz_koptu'
+    saat.t += 5
+    assert c.tik() == [] and ros.acil == 1             # bir kopma = bir dur
+
+
+def test_baglanti_kapaninca_dur(ortam):
+    c, ros, _ = ortam
+    i, _ = giris(c)
+    assert 'asılı kalıyor' in mesaj(c.koptu(i), 'geri_bildirim')['mesaj'] and ros.acil == 1
+
+
+def test_yerdeyken_kopma_dur_gondermez(ortam):
+    c, ros, _ = ortam
+    i, _ = giris(c)
+    c.havada = False
+    c.koptu(i)
+    assert ros.acil == 0
+
+
+def test_devam_ayari_ve_yeniden_baglanma(ortam):
+    c, ros, _ = ortam
+    c.ayarlar.baglanti_koparsa = 'devam'
+    i, _ = giris(c)
+    assert 'devam' in mesaj(c.koptu(i), 'geri_bildirim')['mesaj'] and ros.acil == 0
+    _, cikti = giris(c, 'yeni')
+    assert mesaj(cikti, 'hos_geldin')['rol'] == 'operator'
+
+
+def test_iptal_edilen_sonuc_bekleyen_karta_reddedildi_olur(ortam):
+    c, *_ = ortam
+    i, _ = giris(c)
+    c.metin_cercevesi(i, p.json_yaz('metin', id=9, metin='önce on metre yüksel sonra doğuya git'))
+    gb = mesaj(c.ros_geri_bildirim('iptal', 'ACİL DUR geldiği için "..." iptal edildi'), 'geri_bildirim')
+    assert gb['id'] == 9 and gb['durum'] == 'reddedildi'

@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:telsiz/baglanti/telsiz_istemcisi.dart';
 import 'package:telsiz/durum/modeller.dart';
+import 'package:telsiz/geri_bildirim/geri_bildirimci.dart';
 import 'package:telsiz/protokol/baglanti_adresi.dart';
 
 class SahteBaglanti implements TelsizBaglantisi {
@@ -39,4 +40,11 @@ class SahteBaglanti implements TelsizBaglantisi {
   void gonder(String tip, [Map<String, Object?> alanlar = const {}]) => giden.add({'tip': tip, ...alanlar});
   @override
   void sesGonder(Uint8List cerceve) => ses.add(cerceve);
+}
+
+class SahteGeriBildirim implements GeriBildirimci {
+  final List<Titresim> titresimler = [];
+
+  @override
+  void titresim(Titresim tur) => titresimler.add(tur);
 }

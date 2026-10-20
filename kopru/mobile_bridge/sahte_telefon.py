@@ -4,6 +4,7 @@ Telefon uygulamasiyla ayni protokolu konusur (protokol.py):
 
     python3 -m mobile_bridge.sahte_telefon --url 'ws://127.0.0.1:8765/telsiz?token=XYZ' \\
         --metin "önce 20 metre yüksel sonra kuzeye 50 metre git"
+    python3 -m mobile_bridge.sahte_telefon --url ... --acil --izleyici
 """
 import argparse
 import asyncio
@@ -24,7 +25,7 @@ def adres_coz(url):
     return u._replace(query='').geturl(), token
 
 
-async def calistir(url, metin=None, bekle_s=4.0, cikti=print, rol='operator'):
+async def calistir(url, metin=None, acil=False, bekle_s=4.0, cikti=print, rol='operator'):
     adres, token = adres_coz(url)
     async with websockets.connect(adres, max_size=1 << 20) as ws:
         await ws.send(p.json_yaz('merhaba', surum=p.SURUM, token=token, rol=rol,
@@ -35,7 +36,9 @@ async def calistir(url, metin=None, bekle_s=4.0, cikti=print, rol='operator'):
             return 1
         konusma_id = int(time.time()) % 100000
         t0 = time.perf_counter()
-        if metin is not None:
+        if acil:
+            await ws.send(p.json_yaz('acil_dur'))
+        elif metin is not None:
             await ws.send(p.json_yaz('metin', id=konusma_id, metin=metin, kaynak='klavye'))
 
         son = time.perf_counter() + bekle_s
@@ -53,10 +56,14 @@ async def calistir(url, metin=None, bekle_s=4.0, cikti=print, rol='operator'):
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('--url', required=True, help="ws://IP:8765/telsiz?token=...")
-    ap.add_argument('--metin', required=True)
+    grup = ap.add_mutually_exclusive_group(required=True)
+    grup.add_argument('--metin')
+    grup.add_argument('--acil', action='store_true', help='ACİL DUR gönder')
+    ap.add_argument('--izleyici', action='store_true', help='izleyici olarak bağlan')
     ap.add_argument('--bekle', type=float, default=2.0, help='cevaplari kaç saniye dinle')
     args = ap.parse_args(argv)
-    return asyncio.run(calistir(args.url, args.metin, args.bekle))
+    return asyncio.run(calistir(args.url, args.metin, args.acil, args.bekle,
+                                rol='izleyici' if args.izleyici else 'operator'))
 
 
 if __name__ == '__main__':

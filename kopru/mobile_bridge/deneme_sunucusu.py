@@ -61,6 +61,7 @@ class SanalDrone(RosArayuzu):
         self.durum = AracDurumu(poz=Poz(), havada=False, batarya=1.0)
         self.sunucu = None
         self._gorev = None
+        self.acil_nesli = 0             # her ACIL DUR'da artar
 
     def _yolla(self, cikti):
         asyncio.ensure_future(self.sunucu._gonder(cikti))
@@ -75,8 +76,15 @@ class SanalDrone(RosArayuzu):
 
     async def _isle(self, metin):
         t0 = time.perf_counter()
+        nesil = self.acil_nesli
         cozum = await asyncio.get_running_loop().run_in_executor(None, self.cozucu.coz, metin)
         print(f'  "{metin}" -> {cozum.adimlar or "komut yok"} [{cozum.kaynak}] {cozum.sure_ms:.1f} ms')
+        if cozum.kaynak != 'acil' and nesil != self.acil_nesli:
+            # Cozulurken ACIL DUR geldi: bu sonuc dur'dan SONRA yurutulmemeli.
+            # (Drone reposundaki parser_node da ayni kurali uygular.)
+            self._yolla(self.cek.ros_geri_bildirim(
+                'iptal', f'ACİL DUR geldiği için "{cozum.metin}" iptal edildi'))
+            return
         if not cozum.komut_var:
             self._yolla(self.cek.ros_geri_bildirim(
                 'reddedildi', f'anlamadım: "{cozum.metin}" ({cozum.hata})'))
@@ -85,6 +93,10 @@ class SanalDrone(RosArayuzu):
             'metin': cozum.metin, 'kaynak': cozum.kaynak, 'kuyruga_ekle': cozum.kuyruga_ekle,
             'adimlar': cozum.adimlar, 'parser_ms': round((time.perf_counter() - t0) * 1000, 1)}))
         komutlar = [msg_alanlarina(a) for a in cozum.adimlar]
+        if komutlar[0]['komut'] == 'dur':          # sesli/yazili "dur" (acil kelime yolu)
+            self.acil_dur_yayinla()
+            self._yolla(self.cek.ros_geri_bildirim('tamamlandi', 'duruyorum'))
+            return
         try:
             hedefler = self.guvenlik.liste_kontrol_et(komutlar, self.durum)
         except Reddedildi as e:
@@ -100,7 +112,15 @@ class SanalDrone(RosArayuzu):
             self._yolla(self.cek.ros_geri_bildirim('yurutuyor', mesajlar.baslarken(komut)))
             await asyncio.sleep(self._sure(hedef) / self.hiz_katsayisi)
             self.durum = Guvenlik.sonraki_durum(self.durum, hedef)
+            self.cek.havada = self.durum.havada     # Faz 10'da telemetriden gelecek
             self._yolla(self.cek.ros_geri_bildirim('tamamlandi', f'{komut["komut"]} tamamlandı'))
+
+    def acil_dur_yayinla(self):
+        self.acil_nesli += 1
+        if self._gorev:
+            self._gorev.cancel()                    # yurutulen adimi kes: yerinde kal
+            self._gorev = None
+        print('  ACİL DUR', flush=True)
 
     def _sure(self, hedef):
         a, b = self.durum.poz, hedef.poz
@@ -122,7 +142,7 @@ async def calis(args, hazir=None):
             print(f'LLM {args.llm} ERİŞİLEMİYOR (sadece hızlı yol)')
     drone = SanalDrone(KomutCozucu(llm=llm), hiz_katsayisi=args.hiz)
     token = args.token or os.environ.get('TELSIZ_TOKEN') or secrets.token_urlsafe(9)
-    cekirdek = TelsizCekirdegi(drone, Ayarlar(token=token))
+    cekirdek = TelsizCekirdegi(drone, Ayarlar(token=token, baglanti_koparsa=args.koparsa))
     sunucu = TelsizSunucusu(cekirdek, args.host, args.port)
     drone.sunucu = sunucu
     gorev = asyncio.ensure_future(sunucu.calis())
@@ -143,6 +163,8 @@ def arguman_cozucu():
     ap.add_argument('--token', default='')
     ap.add_argument('--llm', default='', help='llama-server adresi, ör. http://127.0.0.1:8080')
     ap.add_argument('--hiz', type=float, default=1.0, help='sanal yürütme hız katsayısı')
+    ap.add_argument('--koparsa', default='dur', choices=['dur', 'devam'],
+                    help='operatör bağlantısı koparsa ne olsun')
     return ap
 
 
