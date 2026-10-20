@@ -8,14 +8,16 @@ edilebilir (test/test_cekirdek.py).
 Faz 3: giris, roller, ping, metin.  Faz 5: komut / geri bildirim eslestirme.
 Faz 6: ACIL DUR, kalp atisi, telsiz koparsa dur, iptal edilen sonuclar.
 Faz 8: bas-konus ses akisi (parcalari birlestir, STT'ye ver).
+Faz 9: konusmalari WAV + etiketler.csv olarak kaydet (veri seti).
 """
 from collections import deque
 from dataclasses import dataclass, field
 import hmac
+import os
 import time
 
 from . import protokol as p
-from .ses import Konusma, sure_s
+from .ses import Konusma, sure_s, wav_kaydet
 
 HERKES = object()          # alici: tum dogrulanmis istemciler
 
@@ -29,6 +31,7 @@ class Ayarlar:
     baglanti_koparsa: str = 'dur'          # dur | devam
     en_uzun_konusma_s: float = 15.0
     en_kisa_konusma_s: float = 0.25
+    kayit_klasoru: str = ''                # bos = kayit yok
 
 
 class RosArayuzu:
@@ -206,6 +209,7 @@ class TelsizCekirdegi:
                                          sebep=f'konuşma çok kısa ({sure * 1000:.0f} ms)'))]
         self.sayaclar['konusma'] += 1
         self.ros.konusma_yayinla(k, 'telefon')
+        self._kaydet(k, pcm)
         if not self.stt_hazir:
             return [(istemci, p.json_yaz(
                 'anlasilmadi', id=k.konusma_id,
@@ -216,11 +220,33 @@ class TelsizCekirdegi:
 
     def stt_sonucu(self, konusma, metin, sure_ms, hata=None):
         """Yer istasyonundaki STT bitti (baska thread'den sunucu.disaridan ile gelir)."""
+        self._etiket_yaz(konusma, metin or '')
         if hata or not metin:
             return [(HERKES, p.json_yaz('anlasilmadi', id=konusma.konusma_id,
                                         sebep=hata or 'ses yazıya çevrilemedi (boş)', stt_ms=sure_ms))]
         return self._metni_gonder(self.operator, konusma.konusma_id, metin, kaynak='yer_stt',
                                   stt_ms=round(sure_ms))
+
+    # ------------------------------------------------------------------ kayit (veri seti)
+    def _kaydet(self, k, pcm):
+        klasor = self.ayarlar.kayit_klasoru
+        if not klasor:
+            return
+        ad = time.strftime('%Y%m%d_%H%M%S') + f'_{k.konusma_id:05d}.wav'
+        k.kayit_yolu = os.path.join(klasor, ad)
+        wav_kaydet(k.kayit_yolu, pcm)
+
+    def _etiket_yaz(self, konusma, metin):
+        """dosya;stt_metni;beklenen_metin  (beklenen elle doldurulur -> test seti)"""
+        yol = konusma.kayit_yolu
+        if not yol:
+            return
+        csv_yol = os.path.join(self.ayarlar.kayit_klasoru, 'etiketler.csv')
+        yeni = not os.path.exists(csv_yol)
+        with open(csv_yol, 'a', encoding='utf-8') as f:
+            if yeni:
+                f.write('dosya;stt_metni;beklenen_metin\n')
+            f.write(f'{os.path.basename(yol)};{metin.replace(";", ",")};\n')
 
     def _metin(self, istemci, mesaj):
         metin = mesaj['metin'].strip()

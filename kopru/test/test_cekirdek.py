@@ -252,3 +252,22 @@ def test_yer_stt_yoksa_bilgilendirir():
     ses(c, i, 1, 0.5)
     sebep = mesaj(c.metin_cercevesi(i, p.json_yaz('ptt_bitti', id=1)), 'anlasilmadi')['sebep']
     assert 'telefonda tanı' in sebep and ros.stt == []
+
+
+# ---------------------------------------------------------------- Faz 9: kayit
+def test_konusma_wav_ve_etiket_olarak_kaydedilir(tmp_path):
+    ros = SahteRos()
+    c = TelsizCekirdegi(ros, Ayarlar(token='gizli', kayit_klasoru=str(tmp_path)), saat=Saat(),
+                        stt_hazir=True)
+    i, _ = giris(c)
+    c.metin_cercevesi(i, p.json_yaz('ptt_basla', id=5))
+    ses(c, i, 5, 1.0)
+    c.metin_cercevesi(i, p.json_yaz('ptt_bitti', id=5))
+    c.stt_sonucu(ros.stt[0], 'yirmi metre; yüksel', 200)
+    wavlar = list(tmp_path.glob('*.wav'))
+    assert len(wavlar) == 1 and wavlar[0].name.endswith('_00005.wav')
+    from mobile_bridge.ses import wav_oku
+    pcm, hz = wav_oku(str(wavlar[0]))
+    assert hz == 16000 and len(pcm) == 32000
+    satirlar = (tmp_path / 'etiketler.csv').read_text(encoding='utf-8').splitlines()
+    assert satirlar == ['dosya;stt_metni;beklenen_metin', f'{wavlar[0].name};yirmi metre, yüksel;']

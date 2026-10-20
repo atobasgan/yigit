@@ -10,6 +10,8 @@ Telefon gercek kopruyle ayni protokolu konusur. Bu sunucu ROS yerine:
     python3 -m mobile_bridge.deneme_sunucusu --token ABC
     python3 -m mobile_bridge.deneme_sunucusu --llm http://127.0.0.1:8080
     python3 -m mobile_bridge.deneme_sunucusu --sahte-stt "kalk"   # her sese "kalk" de (Faz 8)
+    python3 -m mobile_bridge.deneme_sunucusu --stt faster_whisper # gercek Turkce STT (Faz 9)
+    python3 -m mobile_bridge.deneme_sunucusu --stt faster_whisper --kayit kayitlar/
 """
 import argparse
 import asyncio
@@ -34,6 +36,7 @@ from mission_executor.safety import AracDurumu, Guvenlik, Limitler, Reddedildi  
 
 from . import protokol  # noqa: E402
 from .cekirdek import Ayarlar, RosArayuzu, TelsizCekirdegi  # noqa: E402
+from .stt_motoru import motor_olustur  # noqa: E402
 from .sunucu import TelsizSunucusu  # noqa: E402
 
 # Sanal drone hizlari (gorsel geri bildirim icin; gercek fizik degil)
@@ -169,10 +172,18 @@ async def calis(args, hazir=None):
             print(f'LLM {args.llm}: ısınma {llm.isit().sure_ms:.0f} ms')
         else:
             print(f'LLM {args.llm} ERİŞİLEMİYOR (sadece hızlı yol)')
-    stt = SahteSTT(args.sahte_stt) if args.sahte_stt is not None else None
+    if args.sahte_stt is not None:
+        stt = SahteSTT(args.sahte_stt)
+    elif args.stt != 'yok':
+        print(f'STT modeli yükleniyor: {args.stt_model} ({args.stt_hesaplama}) ...', flush=True)
+        stt = motor_olustur(args.stt, model=args.stt_model, hesaplama=args.stt_hesaplama)
+        print(f'STT ısınma: {stt.isit():.0f} ms')      # ilk cagri yavas: acilista ode
+    else:
+        stt = None
     drone = SanalDrone(KomutCozucu(llm=llm), stt, hiz_katsayisi=args.hiz)
     token = args.token or os.environ.get('TELSIZ_TOKEN') or secrets.token_urlsafe(9)
-    cekirdek = TelsizCekirdegi(drone, Ayarlar(token=token, baglanti_koparsa=args.koparsa),
+    cekirdek = TelsizCekirdegi(drone, Ayarlar(token=token, baglanti_koparsa=args.koparsa,
+                                              kayit_klasoru=args.kayit),
                                stt_hazir=stt is not None, stt_adi=stt.ad if stt else 'yok')
     sunucu = TelsizSunucusu(cekirdek, args.host, args.port)
     drone.sunucu = sunucu
@@ -197,6 +208,10 @@ def arguman_cozucu():
     ap.add_argument('--koparsa', default='dur', choices=['dur', 'devam'],
                     help='operatör bağlantısı koparsa ne olsun')
     ap.add_argument('--sahte-stt', default=None, help='her ses için bu metni döndür (test)')
+    ap.add_argument('--stt', default='yok', choices=['yok', 'faster_whisper'])
+    ap.add_argument('--stt-model', default='small', help='tiny | base | small | medium | large-v3-turbo')
+    ap.add_argument('--stt-hesaplama', default='int8', help='CPU: int8, GPU: float16')
+    ap.add_argument('--kayit', default='', help='konuşmaları WAV + etiketler.csv olarak bu klasöre kaydet')
     return ap
 
 

@@ -21,6 +21,7 @@ izle.
 | 6 | Güvenlik | ACİL DUR, izleyici, kalp atışı, telsiz koparsa dur, yarış durumu ve nesil sayacı, titreşim | [FAZ_06](docs/FAZ_06_guvenlik.md) |
 | 7 | Bas-konuş: telefon STT | platform eklentisi, speech_to_text, Completer, ara sonuç, Android/iOS izinleri | [FAZ_07](docs/FAZ_07_telefon_stt.md) |
 | 8 | Ham ses akışı | dijital ses (16 kHz PCM16), bant hesabı, 20 ms parçalar, halka tampon/ön kayıt, ikili çerçeveler, iki STT modu | [FAZ_08](docs/FAZ_08_ham_ses.md) |
+| 9 | Yer STT: faster-whisper + veri toplama | Whisper modelleri, int8 nicemleme, initial_prompt, gerçek ölçümler, ısınma, thread, WAV + etiketler.csv | [FAZ_09](docs/FAZ_09_yer_stt.md) |
 
 *(Tablo her fazda büyüyecek.)*
 
