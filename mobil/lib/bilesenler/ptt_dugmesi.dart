@@ -33,8 +33,10 @@ class PttDugmesi extends StatefulWidget {
 }
 
 class _PttDugmesiState extends State<PttDugmesi> with SingleTickerProviderStateMixin {
-  late final AnimationController _nabiz =
-      AnimationController(vsync: this, duration: const Duration(milliseconds: 1200));
+  late final AnimationController _nabiz = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 1200),
+  );
 
   @override
   void didUpdateWidget(covariant PttDugmesi eski) {
@@ -60,9 +62,10 @@ class _PttDugmesiState extends State<PttDugmesi> with SingleTickerProviderStateM
     final (renk, ikon, yazi) = switch (widget.durum) {
       PttDurumu.dinliyor => (const Color(0xFF00C853), Icons.mic, 'KONUŞ'),
       PttDurumu.isleniyor => (renkler.tertiary, Icons.hourglass_top, 'İŞLENİYOR'),
-      PttDurumu.bos => widget.etkin
-          ? (renkler.primary, Icons.mic_none, 'BAS KONUŞ')
-          : (Colors.grey.shade700, Icons.mic_off, 'BAĞLI DEĞİL'),
+      PttDurumu.bos =>
+        widget.etkin
+            ? (renkler.primary, Icons.mic_none, 'BAS KONUŞ')
+            : (Colors.grey.shade700, Icons.mic_off, 'BAĞLI DEĞİL'),
     };
     final b = widget.boyut;
     return Semantics(
@@ -79,37 +82,48 @@ class _PttDugmesiState extends State<PttDugmesi> with SingleTickerProviderStateM
             return SizedBox(
               width: b * 1.6,
               height: b * 1.6,
-              child: Stack(alignment: Alignment.center, children: [
-                if (dinliyor)
-                  Container(
-                    width: b * (1 + 0.5 * _nabiz.value),
-                    height: b * (1 + 0.5 * _nabiz.value),
+              child: Stack(
+                alignment: Alignment.center,
+                children: [
+                  if (dinliyor)
+                    Container(
+                      width: b * (1 + 0.5 * _nabiz.value),
+                      height: b * (1 + 0.5 * _nabiz.value),
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        border: Border.all(color: renk.withValues(alpha: 1 - _nabiz.value), width: 3),
+                      ),
+                    ),
+                  AnimatedContainer(
+                    duration: const Duration(milliseconds: 80),
+                    width: b,
+                    height: b,
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
-                      border: Border.all(color: renk.withValues(alpha: 1 - _nabiz.value), width: 3),
+                      color: renk,
+                      border: Border.all(
+                        color: Colors.white.withValues(alpha: 0.85),
+                        width: dinliyor ? 3 + 14 * widget.seviye : 2,
+                      ),
+                      boxShadow: [BoxShadow(color: renk.withValues(alpha: 0.5), blurRadius: 24)],
+                    ),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(ikon, size: b * 0.36, color: Colors.white),
+                        Text(
+                          yazi,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: 1,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-                AnimatedContainer(
-                  duration: const Duration(milliseconds: 80),
-                  width: b,
-                  height: b,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: renk,
-                    border: Border.all(
-                      color: Colors.white.withValues(alpha: 0.85),
-                      width: dinliyor ? 3 + 14 * widget.seviye : 2,
-                    ),
-                    boxShadow: [BoxShadow(color: renk.withValues(alpha: 0.5), blurRadius: 24)],
-                  ),
-                  child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-                    Icon(ikon, size: b * 0.36, color: Colors.white),
-                    Text(yazi,
-                        style: const TextStyle(
-                            color: Colors.white, fontWeight: FontWeight.w800, letterSpacing: 1)),
-                  ]),
-                ),
-              ]),
+                ],
+              ),
             );
           },
         ),

@@ -5,15 +5,16 @@ import 'package:flutter/foundation.dart';
 import '../ayarlar/ayarlar.dart';
 import '../baglanti/telsiz_istemcisi.dart';
 import '../protokol/baglanti_adresi.dart';
+import 'komut_aciklama.dart';
 import 'modeller.dart';
 
-/// Uygulamanın beyni (Faz 4: bağlantı ve rol).
+/// Uygulamanın beyni (Faz 4: bağlantı ve rol; Faz 5: komutlar ve kartlar).
 ///
 /// Ekranlar bu nesneyi dinler (ChangeNotifier). Kontrolcü bağlantıdan gelen
 /// mesajları işler, durumu günceller ve notifyListeners() ile ekranlara
 /// "yeniden çiz" der. Ekranlar mantık içermez; sadece kontrolcüyü gösterir.
 class TelsizKontrolcusu extends ChangeNotifier {
-  TelsizKontrolcusu({required this.baglanti, this.ayarlar = const Ayarlar()}) {
+  TelsizKontrolcusu({required this.baglanti, this.ayarlar = const Ayarlar(), this.enFazlaKart = 50}) {
     baglanti.durum.addListener(_baglantiDegisti);
     _abonelik = baglanti.mesajlar.listen(_mesaj);
   }
@@ -21,8 +22,15 @@ class TelsizKontrolcusu extends ChangeNotifier {
   /// Arayüz (interface): gerçekte TelsizIstemcisi, testlerde SahteBaglanti.
   final TelsizBaglantisi baglanti;
 
+  final int enFazlaKart;
+
   /// Değiştirmek için ayarlariGuncelle() kullan.
   Ayarlar ayarlar;
+
+  /// Konuşma kartları, en yenisi başta.
+  final List<KonusmaKarti> kartlar = [];
+  final Map<int, DateTime> _gondermeZamani = {};
+  int _sonId = DateTime.now().millisecondsSinceEpoch % 1000000000;
   late final StreamSubscription<Map<String, dynamic>> _abonelik;
 
   String rol = 'operator';
@@ -55,19 +63,121 @@ class TelsizKontrolcusu extends ChangeNotifier {
     notifyListeners();
   }
 
+  // ------------------------------------------------------------------ komut gönder
+  /// Yazıyla ya da hızlı tuşla komut. Telefon komutu kendisi YORUMLAMAZ:
+  /// metin yer istasyonundaki command_parser'dan geçer (normalize, hızlı yol,
+  /// LLM, güvenlik). Telefon yalnızca sonucu gösterir.
+  void metinGonder(String metin, {String giris = 'klavye'}) {
+    final temiz = metin.trim();
+    if (!komutVerebilir || temiz.isEmpty) return;
+    final kart = _yeniKart(giris)
+      ..duyulan = temiz
+      ..sttKaynagi = giris
+      ..durum = KartDurumu.isleniyor;
+    _gondermeZamani[kart.id] = DateTime.now();
+    baglanti.gonder('metin', {'id': kart.id, 'metin': temiz, 'kaynak': giris});
+    notifyListeners();
+  }
+
+  // ------------------------------------------------------------------ gelen mesajlar
   void _mesaj(Map<String, dynamic> m) {
+    final id = m['id'] as int?;
+    final kart = id == null ? null : _kartBul(id);
     switch (m['tip']) {
       case 'hos_geldin':
         rol = m['rol'] as String? ?? 'izleyici';
         yerSttVar = m['yer_stt'] == true;
         bildirim = rol == 'izleyici' ? 'izleyici olarak bağlandın' : null;
+      case 'duyuldu':
+        final k = kart ?? _uzakKart(id);
+        k
+          ..duyulan = m['metin'] as String?
+          ..sttKaynagi = m['kaynak'] as String?
+          ..sttMs = m['stt_ms'] as int?;
+        // Mesajlar sırasız gelebilir: komut zaten geldiyse durumu geri çekme.
+        if (k.durum case KartDurumu.dinleniyor || KartDurumu.isleniyor) k.durum = KartDurumu.duyuldu;
+      case 'komut':
+        final k = kart ?? _uzakKart(id);
+        k
+          ..adimlar = [
+            for (final a in (m['adimlar'] as List? ?? const [])) Map<String, dynamic>.from(a as Map),
+          ]
+          ..komutKaynagi = m['kaynak'] as String?
+          ..normalize = m['metin'] as String?
+          ..kuyrugaEklendi = m['kuyruga_ekle'] == true
+          ..parserMs = (m['parser_ms'] as num?)?.toDouble()
+          ..durum = KartDurumu.komut;
+        final gonderme = id == null ? null : _gondermeZamani.remove(id);
+        if (gonderme != null) k.toplamGecikmeMs = DateTime.now().difference(gonderme).inMilliseconds;
+      case 'anlasilmadi':
+        if (kart != null) _kartiBitir(kart, KartDurumu.anlasilmadi, m['sebep'] as String?);
+      case 'geri_bildirim':
+        _geriBildirim(kart, m['durum'] as String? ?? '', m['mesaj'] as String? ?? '');
       case 'hata':
-        bildirim = m['mesaj'] as String? ?? 'bilinmeyen hata';
+        final mesaj = m['mesaj'] as String? ?? 'bilinmeyen hata';
+        if (kart != null) {
+          _kartiBitir(kart, KartDurumu.anlasilmadi, mesaj);
+        } else {
+          bildirim = mesaj;
+        }
       default:
-        return; // diğer mesajlar sonraki fazlarda
+        return;
     }
     notifyListeners();
   }
+
+  /// Yürütücünün geri bildirimleri kartın durumunu ilerletir.
+  void _geriBildirim(KonusmaKarti? kart, String durum, String mesaj) {
+    if (kart == null) {
+      if (durum == 'reddedildi' || durum == 'hata') bildirim = mesaj;
+      return;
+    }
+    kart.olaylar.add(mesaj);
+    switch (durum) {
+      case 'yurutuyor':
+        kart.durum = KartDurumu.yurutuyor;
+      case 'tamamlandi':
+        kart.durum = KartDurumu.tamamlandi;
+      case 'reddedildi':
+      case 'hata':
+        _kartiBitir(kart, KartDurumu.reddedildi, mesaj);
+    }
+  }
+
+  // ------------------------------------------------------------------ yardımcılar
+  KonusmaKarti _yeniKart(String giris) {
+    _sonId = (_sonId + 1) % 4000000000; // protokolde id uint32
+    final kart = KonusmaKarti(id: _sonId, giris: giris);
+    kartlar.insert(0, kart);
+    if (kartlar.length > enFazlaKart) kartlar.removeLast();
+    return kart;
+  }
+
+  /// Başka bir operatörün (izleyiciyken) ya da id'siz gelen komut için kart.
+  KonusmaKarti _uzakKart(int? id) {
+    final kart = KonusmaKarti(id: id ?? -DateTime.now().millisecondsSinceEpoch, giris: 'uzak');
+    kartlar.insert(0, kart);
+    if (kartlar.length > enFazlaKart) kartlar.removeLast();
+    return kart;
+  }
+
+  KonusmaKarti? _kartBul(int id) {
+    for (final k in kartlar) {
+      if (k.id == id) return k;
+    }
+    return null;
+  }
+
+  void _kartiBitir(KonusmaKarti kart, KartDurumu durum, String? sebep) {
+    kart
+      ..durum = durum
+      ..sebep = sebep;
+    _gondermeZamani.remove(kart.id);
+  }
+
+  /// Kart başlığı: komut varsa okunur hali, yoksa duyulan metin.
+  static String kartBasligi(KonusmaKarti k) =>
+      k.adimlar.isNotEmpty ? adimlarAciklamasi(k.adimlar) : (k.duyulan ?? '…');
 
   void bildirimiKapat() {
     bildirim = null;

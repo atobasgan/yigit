@@ -25,10 +25,20 @@ void main() {
     expect(find.text('12 ms'), findsOneWidget, reason: 'ping göstergesi');
     expect(find.text('BAS KONUŞ'), findsOneWidget);
 
-    final parmak = await tester.startGesture(tester.getCenter(find.text('BAS KONUŞ')));
+    // Faz 5: hızlı tuş -> metin gider; sunucudan komut gelince kart + JSON
+    await tester.tap(find.text('eve dön'));
+    expect(b.giden.last, containsPair('metin', 'eve dön'));
+    b.gelsin({
+      'tip': 'komut',
+      'id': b.giden.last['id'],
+      'kaynak': 'hizli_yol',
+      'metin': 'eve dön',
+      'adimlar': [
+        {'komut': 'eve_don'},
+      ],
+    });
     await tester.pump();
-    expect(find.text('KONUŞ'), findsOneWidget);
-    await parmak.up();
-    await tester.pump();
+    expect(find.text('HIZLI YOL'), findsOneWidget);
+    expect(find.textContaining('"komut": "eve_don"'), findsOneWidget);
   });
 }

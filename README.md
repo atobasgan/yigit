@@ -17,6 +17,7 @@ izle.
 | 2 | Protokol (Dart + Python) | JSON vs ikili çerçeve, bayt sırası, doğrulama, ortak test vektörü | [FAZ_02](docs/FAZ_02_protokol.md) |
 | 3 | Yer istasyonu köprüsü (Python) | asyncio, WebSocket sunucusu, çekirdek/kabuk ayrımı, token, roller | [FAZ_03](docs/FAZ_03_kopru_sunucusu.md) |
 | 4 | Telefon istemcisi, bağlan ekranı | ChangeNotifier, arayüz + sahte nesne, Future/Stream/Timer, ping, yeniden bağlanma, uyum testi | [FAZ_04](docs/FAZ_04_istemci.md) |
+| 5 | Yazılı komut → JSON → kart | telefon yorumlamaz, JSON şeması, hızlı yol vs LLM, eşleştirme kuyruğu, gerçek parser | [FAZ_05](docs/FAZ_05_komut_ve_json.md) |
 
 *(Tablo her fazda büyüyecek.)*
 
@@ -43,4 +44,6 @@ docs/    her fazın öğretici açıklaması
 
 - Flutter SDK 3.47+ (`flutter doctor`)
 - Telefonda deneme için Android Studio (Android SDK) ya da Xcode
-- Yer istasyonu için (Faz 3'ten itibaren): Python 3.10+, `pip install websockets`
+- Yer istasyonu için (Faz 3'ten itibaren): Python 3.10+, `pip install -r kopru/requirements.txt`
+- Faz 5'ten itibaren drone reposu (komutu anlayan `command_parser`): `export DRONE_REPO=~/drone`
+  (varsayılan: bu reponun yanındaki `../drone`)

@@ -11,10 +11,10 @@ class Ayarlar {
   final bool izleyici;
 
   Ayarlar copyWith({String? sunucuAdresi, String? token, bool? izleyici}) => Ayarlar(
-        sunucuAdresi: sunucuAdresi ?? this.sunucuAdresi,
-        token: token ?? this.token,
-        izleyici: izleyici ?? this.izleyici,
-      );
+    sunucuAdresi: sunucuAdresi ?? this.sunucuAdresi,
+    token: token ?? this.token,
+    izleyici: izleyici ?? this.izleyici,
+  );
 }
 
 /// shared_preferences: telefonda anahtar-değer olarak kalıcı saklama

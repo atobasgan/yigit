@@ -87,3 +87,39 @@ def test_henuz_olmayan_mesaj(ortam):
     c, *_ = ortam
     i, _ = giris(c)
     assert mesaj(c.metin_cercevesi(i, p.json_yaz('ptt_basla', id=1)), 'hata')['kod'] == 'desteklenmiyor'
+
+
+def test_komut_bekleyen_konusmayla_eslesir(ortam):
+    c, ros, saat = ortam
+    i, _ = giris(c)
+    c.metin_cercevesi(i, p.json_yaz('metin', id=7, metin='20 metre yüksel'))
+    saat.t += 0.012
+    k = mesaj(c.ros_komut({'metin': '20 m yüksel', 'kaynak': 'hizli_yol', 'kuyruga_ekle': False,
+                           'adimlar': [{'komut': 'yuksel', 'metre': 20}], 'parser_ms': 0.1}), 'komut')
+    assert k['id'] == 7 and k['gecikme_ms'] == 12 and k['adimlar'][0]['komut'] == 'yuksel'
+    gb = mesaj(c.ros_geri_bildirim('yurutuyor', '20 metre yükseliyorum'), 'geri_bildirim')
+    assert gb['id'] == 7, 'yürütücünün geri bildirimi son komutun kartına'
+
+
+def test_sirali_iki_konusma(ortam):
+    c, *_ = ortam
+    i, _ = giris(c)
+    c.metin_cercevesi(i, p.json_yaz('metin', id=1, metin='kalk'))
+    c.metin_cercevesi(i, p.json_yaz('metin', id=2, metin='in'))
+    assert mesaj(c.ros_komut({'adimlar': []}), 'komut')['id'] == 1
+    assert mesaj(c.ros_komut({'adimlar': []}), 'komut')['id'] == 2
+
+
+def test_anlamadim_bekleyen_konusmaya_baglanir(ortam):
+    c, *_ = ortam
+    i, _ = giris(c)
+    c.metin_cercevesi(i, p.json_yaz('metin', id=3, metin='saat kaç'))
+    assert mesaj(c.ros_geri_bildirim('reddedildi', 'anlamadım: "saat kaç"'), 'anlasilmadi')['id'] == 3
+
+
+def test_eslestirme_zaman_asimi(ortam):
+    c, ros, saat = ortam
+    i, _ = giris(c)
+    c.metin_cercevesi(i, p.json_yaz('metin', id=1, metin='kalk'))
+    saat.t += 60
+    assert mesaj(c.ros_komut({'adimlar': []}), 'komut')['id'] is None

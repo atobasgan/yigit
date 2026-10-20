@@ -4,9 +4,11 @@ ROS'tan ve agdan bagimsizdir. Her olay (mesaj geldi, baglanti koptu...) bir
 metotla cekirdege verilir; cekirdek telefonlara gidecek mesajlari
 [(alici, metin), ...] olarak DONDURUR ve ROS tarafindaki isleri RosArayuzu
 uzerinden yapar. Boylece tum mantik ag acmadan, sahte bir ROS ile birim test
-edilebilir (test/test_cekirdek.py). Faz 3: giris, roller, ping, metin.
+edilebilir (test/test_cekirdek.py).
+Faz 3: giris, roller, ping, metin.  Faz 5: komut / geri bildirim eslestirme.
 """
-from dataclasses import dataclass
+from collections import deque
+from dataclasses import dataclass, field
 import hmac
 import time
 
@@ -19,6 +21,7 @@ HERKES = object()          # alici: tum dogrulanmis istemciler
 class Ayarlar:
     token: str = ''
     tek_operator: bool = True
+    eslestirme_zaman_asimi_s: float = 15.0
 
 
 class RosArayuzu:
@@ -38,6 +41,14 @@ class Istemci:
     son_mesaj_t: float = 0.0
 
 
+@dataclass
+class _Bekleyen:
+    """Metni yayinlanmis, parser'dan sonucu beklenen konusma."""
+    konusma_id: int
+    t: float
+    istemci: Istemci = field(repr=False, default=None)
+
+
 class TelsizCekirdegi:
 
     def __init__(self, ros, ayarlar=None, saat=time.monotonic):
@@ -46,7 +57,10 @@ class TelsizCekirdegi:
         self.saat = saat
         self.istemciler = []
         self.operator = None
-        self.sayaclar = {'metin': 0}
+        self._bekleyen = deque()        # metni yayinlanan, komutu beklenen konusmalar
+        self._son_komut_id = None
+        self._son_komut_t = 0.0
+        self.sayaclar = {'metin': 0, 'red': 0}
 
     # ------------------------------------------------------------------ baglanti
     def baglandi(self, ad):
@@ -120,9 +134,47 @@ class TelsizCekirdegi:
         if not metin:
             return [(istemci, p.json_yaz('anlasilmadi', id=mesaj['id'], sebep='boş metin'))]
         self.sayaclar['metin'] += 1
-        self.ros.metin_yayinla(metin[:500])
-        return [(HERKES, p.json_yaz('duyuldu', id=mesaj['id'], metin=metin[:500],
-                                    kaynak=str(mesaj.get('kaynak', 'klavye')), stt_ms=None))]
+        return self._metni_gonder(istemci, mesaj['id'], metin[:500],
+                                  kaynak=str(mesaj.get('kaynak', 'klavye')), stt_ms=None)
+
+    def _metni_gonder(self, istemci, konusma_id, metin, kaynak, stt_ms):
+        self._bekleyen.append(_Bekleyen(konusma_id, self.saat(), istemci))
+        self.ros.metin_yayinla(metin)
+        return [(HERKES, p.json_yaz('duyuldu', id=konusma_id, metin=metin, kaynak=kaynak,
+                                    stt_ms=stt_ms))]
+
+    # ------------------------------------------------------------------ ROS'tan gelenler
+    def _eslestir(self):
+        """Parser'in urettigi sonucu en eski bekleyen konusmayla eslestirir.
+
+        /voice/text sade bir String: konusma id'si ROS'tan gecemez. Ama parser
+        cumleleri SIRAYLA isler; o yuzden gelen ilk sonuc en eski bekleyene aittir.
+        """
+        simdi = self.saat()
+        while self._bekleyen and simdi - self._bekleyen[0].t > self.ayarlar.eslestirme_zaman_asimi_s:
+            self._bekleyen.popleft()
+        return self._bekleyen.popleft() if self._bekleyen else None
+
+    def ros_komut(self, komut):
+        """/drone/command geldi. komut: {'metin','kaynak','kuyruga_ekle','adimlar','parser_ms'}"""
+        bekleyen = self._eslestir()
+        konusma_id = bekleyen.konusma_id if bekleyen else None
+        gecikme = round((self.saat() - bekleyen.t) * 1000) if bekleyen else None
+        self._son_komut_id, self._son_komut_t = konusma_id, self.saat()
+        return [(HERKES, p.json_yaz('komut', id=konusma_id, gecikme_ms=gecikme, **komut))]
+
+    def ros_geri_bildirim(self, durum, mesaj):
+        """/drone/feedback geldi. Parser'in 'anlamadim' cevabi bekleyen konusmaya baglanir;
+        yurutucunun geri bildirimleri (yurutuyor, tamamlandi...) son komutun kartina gider."""
+        if durum == 'reddedildi' and mesaj.startswith('anlamadım'):
+            bekleyen = self._eslestir()
+            self.sayaclar['red'] += 1
+            return [(HERKES, p.json_yaz('anlasilmadi', id=bekleyen.konusma_id if bekleyen else None,
+                                        sebep=mesaj))]
+        konusma_id = None
+        if self._son_komut_id is not None and self.saat() - self._son_komut_t < 120:
+            konusma_id = self._son_komut_id
+        return [(HERKES, p.json_yaz('geri_bildirim', id=konusma_id, durum=durum, mesaj=mesaj))]
 
     # ------------------------------------------------------------------ zamanlayici
     def tik(self):

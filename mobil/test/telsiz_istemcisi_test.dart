@@ -26,9 +26,13 @@ class TestSunucusu {
         if (!cevapVer || veri is! String) return;
         final m = jsonDecode(veri) as Map<String, dynamic>;
         if (m['tip'] == 'merhaba') {
-          ws.add(jsonEncode(m['token'] == 'T'
-              ? {'tip': 'hos_geldin', 'rol': m['rol'], 'yer_stt': false}
-              : {'tip': 'hata', 'kod': 'yetkisiz', 'mesaj': 'token hatalı'}));
+          ws.add(
+            jsonEncode(
+              m['token'] == 'T'
+                  ? {'tip': 'hos_geldin', 'rol': m['rol'], 'yer_stt': false}
+                  : {'tip': 'hata', 'kod': 'yetkisiz', 'mesaj': 'token hatalı'},
+            ),
+          );
         } else if (m['tip'] == 'ping') {
           ws.add(jsonEncode({'tip': 'pong', 't': m['t']}));
         }
@@ -84,7 +88,9 @@ void main() {
 
   test('sunucu susarsa bağlantı ölü sayılır ve yeniden bağlanır', () async {
     final i = TelsizIstemcisi(
-        pingAraligi: const Duration(milliseconds: 50), olumSuresi: const Duration(milliseconds: 300));
+      pingAraligi: const Duration(milliseconds: 50),
+      olumSuresi: const Duration(milliseconds: 300),
+    );
     await i.baglan(adres('T'), izleyici: false);
     await bekle(() => i.durum.value == BaglantiDurumu.bagli);
     s.cevapVer = false;

@@ -1,2 +1,3 @@
 websockets>=12
+requests      # command_parser.llm_client (drone reposu)
 pytest

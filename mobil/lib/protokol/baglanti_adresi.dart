@@ -44,8 +44,7 @@ class BaglantiAdresi {
   }
 
   @override
-  bool operator ==(Object other) =>
-      other is BaglantiAdresi && other.uri == uri && other.token == token;
+  bool operator ==(Object other) => other is BaglantiAdresi && other.uri == uri && other.token == token;
 
   @override
   int get hashCode => Object.hash(uri, token);

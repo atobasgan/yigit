@@ -18,8 +18,7 @@ const int parcaBayt = orneklemeHz * ornekBayt ~/ 50;
 /// Milisaniyeyi PCM16 bayt sayısına çevirir (çift sayı).
 int msToBayt(int ms) => orneklemeHz * ornekBayt * ms ~/ 1000 ~/ 2 * 2;
 
-String jsonYaz(String tip, [Map<String, Object?> alanlar = const {}]) =>
-    jsonEncode({'tip': tip, ...alanlar});
+String jsonYaz(String tip, [Map<String, Object?> alanlar = const {}]) => jsonEncode({'tip': tip, ...alanlar});
 
 /// Sunucudan gelen metni çözer; geçersizse null.
 Map<String, dynamic>? jsonCoz(Object? ham) {
