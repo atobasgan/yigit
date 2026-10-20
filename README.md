@@ -15,6 +15,7 @@ izle.
 |---|---|---|---|
 | 1 | Flutter iskeleti, bas-konuş tuşu | widget, state, tema, `Listener`, animasyon, widget testi | [FAZ_01](docs/FAZ_01_iskelet.md) |
 | 2 | Protokol (Dart + Python) | JSON vs ikili çerçeve, bayt sırası, doğrulama, ortak test vektörü | [FAZ_02](docs/FAZ_02_protokol.md) |
+| 3 | Yer istasyonu köprüsü (Python) | asyncio, WebSocket sunucusu, çekirdek/kabuk ayrımı, token, roller | [FAZ_03](docs/FAZ_03_kopru_sunucusu.md) |
 
 *(Tablo her fazda büyüyecek.)*
 
