@@ -16,7 +16,7 @@ import 'komut_aciklama.dart';
 import 'modeller.dart';
 
 /// Uygulamanın beyni (Faz 4: bağlantı; 5: kartlar; 6: ACİL DUR; 7: telefon STT;
-/// Faz 8: ham ses akışı ve iki STT modu).
+/// Faz 8: ham ses akışı ve iki STT modu; Faz 10: telemetri ve sesli yanıt).
 ///
 /// Yer STT modu  : tuşa basınca ptt_basla + ön kayıt (300 ms) + canlı 20 ms
 ///                 parçalar; bırakınca +son kayıt (150 ms) ve ptt_bitti.
@@ -56,6 +56,9 @@ class TelsizKontrolcusu extends ChangeNotifier {
   PttDurumu ptt = PttDurumu.bos;
   double seviye = 0;
   String? kismiMetin;
+
+  /// Son PX4 telemetrisi (köprü 2 Hz gönderir).
+  Telemetri telemetri = const Telemetri();
 
   /// Üst şeritte gösterilen son önemli uyarı (telsiz koptu, acil dur, hata...).
   String? bildirim;
@@ -104,6 +107,11 @@ class TelsizKontrolcusu extends ChangeNotifier {
   // ------------------------------------------------------------------ ayarlar
   Future<void> ayarlariGuncelle(Ayarlar yeni) async {
     ayarlar = yeni;
+    if (geriBildirim case final CihazGeriBildirimci g) {
+      g
+        ..sesAcik = yeni.sesliYanit
+        ..titresimAcik = yeni.titresim;
+    }
     await _onKayitDurumunuUygula();
     notifyListeners();
   }
@@ -139,6 +147,7 @@ class TelsizKontrolcusu extends ChangeNotifier {
   Future<void> pttBasla() async {
     if (!komutVerebilir || ptt != PttDurumu.bos) return;
     geriBildirim.titresim(Titresim.basla);
+    unawaited(geriBildirim.sustur()); // telsizde konuşan araya girer: TTS sussun
     final kart = _yeniKart('ses');
     _aktif = kart;
     _basmaZamani = DateTime.now();
@@ -331,9 +340,12 @@ class TelsizKontrolcusu extends ChangeNotifier {
         if (kart != null) {
           _kartiBitir(kart, KartDurumu.anlasilmadi, m['sebep'] as String?);
           geriBildirim.titresim(Titresim.red);
+          unawaited(geriBildirim.soyle('Anlamadım'));
         }
       case 'geri_bildirim':
         _geriBildirim(kart, m['durum'] as String? ?? '', m['mesaj'] as String? ?? '');
+      case 'telemetri':
+        telemetri = Telemetri.fromJson(m);
       case 'hata':
         final mesaj = m['mesaj'] as String? ?? 'bilinmeyen hata';
         if (kart != null) {
@@ -351,6 +363,7 @@ class TelsizKontrolcusu extends ChangeNotifier {
     if (durum == 'acil_dur' || durum == 'telsiz_koptu') {
       bildirim = mesaj;
       geriBildirim.titresim(Titresim.acil);
+      unawaited(geriBildirim.soyle(durum == 'acil_dur' ? 'Acil dur' : 'Telsiz bağlantısı koptu'));
       return;
     }
     if (kart == null) {
@@ -361,12 +374,14 @@ class TelsizKontrolcusu extends ChangeNotifier {
     switch (durum) {
       case 'yurutuyor':
         kart.durum = KartDurumu.yurutuyor;
+        unawaited(geriBildirim.soyle(mesaj)); // "20 metre yükseliyorum"
       case 'tamamlandi':
         kart.durum = KartDurumu.tamamlandi;
       case 'reddedildi':
       case 'hata':
         _kartiBitir(kart, KartDurumu.reddedildi, mesaj);
         geriBildirim.titresim(Titresim.red);
+        unawaited(geriBildirim.soyle('Reddedildi. $mesaj'));
     }
   }
 

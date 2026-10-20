@@ -22,8 +22,11 @@ izle.
 | 7 | Bas-konuş: telefon STT | platform eklentisi, speech_to_text, Completer, ara sonuç, Android/iOS izinleri | [FAZ_07](docs/FAZ_07_telefon_stt.md) |
 | 8 | Ham ses akışı | dijital ses (16 kHz PCM16), bant hesabı, 20 ms parçalar, halka tampon/ön kayıt, ikili çerçeveler, iki STT modu | [FAZ_08](docs/FAZ_08_ham_ses.md) |
 | 9 | Yer STT: faster-whisper + veri toplama | Whisper modelleri, int8 nicemleme, initial_prompt, gerçek ölçümler, ısınma, thread, WAV + etiketler.csv | [FAZ_09](docs/FAZ_09_yer_stt.md) |
+| 10 | Bütün sistem: ROS 2 node, telemetri, TTS, ayarlar, QR | rclpy + asyncio thread'leri, `call_soon_threadsafe`, zarif bozulma, PX4 telemetrisi, immutable model, flutter_tts, Navigator, RadioGroup, mobile_scanner, wakelock | [FAZ_10](docs/FAZ_10_butun_sistem.md) |
 
-*(Tablo her fazda büyüyecek.)*
+`main` dalı son hali (Faz 10) taşır: telefon bas-konuş (telefon ya da yer STT),
+komut kartları, ACİL DUR, telemetri şeridi, Türkçe sesli yanıt, ayarlar ve QR
+ile bağlanma; yer istasyonunda ROS 2 köprüsü ya da ROS'suz deneme sunucusu.
 
 ## Bir faza dönmek
 
@@ -40,8 +43,10 @@ git log --oneline             # her commit bir faz
 
 ```
 mobil/   Flutter uygulaması (telefon)
-kopru/   Python: yer istasyonu köprüsü (telefon <-> ROS 2)
+kopru/   Python: yer istasyonu köprüsü (telefon <-> ROS 2); aynı zamanda ROS 2 paketi (mobile_bridge)
+ros2/    drone reposuna eklenecek ROS 2 parçaları (mesaj, launch, config, patch)
 docs/    her fazın öğretici açıklaması
+scripts/ uyum testi (gerçek Dart istemci <-> gerçek Python köprü)
 ```
 
 ## Gerekenler
@@ -51,3 +56,5 @@ docs/    her fazın öğretici açıklaması
 - Yer istasyonu için (Faz 3'ten itibaren): Python 3.10+, `pip install -r kopru/requirements.txt`
 - Faz 5'ten itibaren drone reposu (komutu anlayan `command_parser`): `export DRONE_REPO=~/drone`
   (varsayılan: bu reponun yanındaki `../drone`)
+- Faz 10, gerçek sistem: ROS 2 + PX4 (drone reposu) ve `ros2/README.md`'deki adımlar.
+  ROS yoksa `deneme_sunucusu` aynı deneyimi sanal drone ile verir.

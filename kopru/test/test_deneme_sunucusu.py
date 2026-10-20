@@ -95,3 +95,11 @@ def test_ses_sahte_stt_ile_gercek_parser():
     assert tipte(gelen, 'isleniyor', id=5)[0]['sure_ms'] == 500
     assert tipte(gelen, 'duyuldu', id=5)[0]['kaynak'] == 'yer_stt'
     assert tipte(gelen, 'komut', id=5)[0]['adimlar'] == [{'komut': 'yuksel', 'metre': 20.0}]
+
+
+def test_sanal_drone_telemetri_gonderir():
+    """Faz 10: her adim sonunda telemetri; batarya azalir, havada bilgisi cekirdege gecer."""
+    drone, gelen = senaryo([p.json_yaz('metin', id=1, metin='kalk'), 0.3])
+    t = tipte(gelen, 'telemetri')[-1]
+    assert t['havada'] is True and t['irtifa'] == 10.0 and t['batarya'] == 0.99
+    assert t['mod'] == 'OFFBOARD' and drone.cek.havada is True

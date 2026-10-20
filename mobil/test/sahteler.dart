@@ -46,6 +46,13 @@ class SahteBaglanti implements TelsizBaglantisi {
 
 class SahteGeriBildirim implements GeriBildirimci {
   final List<Titresim> titresimler = [];
+  final List<String> soylenen = [];
+  int susturma = 0;
+
+  @override
+  Future<void> soyle(String metin) async => soylenen.add(metin);
+  @override
+  Future<void> sustur() async => susturma++;
 
   @override
   void titresim(Titresim tur) => titresimler.add(tur);

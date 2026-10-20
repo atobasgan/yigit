@@ -2,3 +2,4 @@ websockets>=12
 requests      # command_parser.llm_client (drone reposu)
 pytest
 # Faz 9 (yer STT, istege bagli): pip install faster-whisper
+qrcode        # Faz 10: terminalde QR kod (istege bagli)

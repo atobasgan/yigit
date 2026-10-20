@@ -1,0 +1,22 @@
+# mobile_bridge (telsiz koprusu) parametreleri. MOBIL_TELSIZ_ACIKLAMA.txt Bolum 6.
+mobile_bridge:
+  ros__parameters:
+    host: 0.0.0.0
+    port: 8765
+    token_env: TELSIZ_TOKEN          # anahtar ortam degiskeninde; yoksa her acilista rastgele
+    ilan_ip: ""                      # QR'a yazilacak IP; bos = otomatik
+    tek_operator: true               # ayni anda tek telefon komut verir, digerleri izleyici
+    en_uzun_konusma_s: 15.0
+    en_kisa_konusma_s: 0.25          # daha kisa basislar (cebe surtunme) yok sayilir
+    baglanti_zaman_asimi_s: 3.0      # operatorden bu kadar sinyal gelmezse "telsiz koptu"
+    baglanti_koparsa: dur            # dur: drone yerinde asili kalir | devam
+    telemetri_hz: 2.0
+    kayit_klasoru: ""                # ornek: ~/llm_drone/recordings/telsiz (Faz 3 test seti)
+
+    # Yer istasyonunda STT ("yer STT" modu). yok = sadece telefonda tanima.
+    stt_motoru: yok                  # yok | faster_whisper
+    stt_model: small                 # GPU varsa: large-v3-turbo (ya da Turkce CT2 surumu)
+    stt_cihaz: auto                  # auto | cpu | cuda
+    stt_hesaplama: int8              # CPU: int8 (small int8 = small float32 doğruluğunda, %33 hızlı)
+                                     # GPU: float16
+    stt_beam_size: 1

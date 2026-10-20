@@ -1,0 +1,208 @@
+diff --git a/ros2_ws/src/command_parser/command_parser/parser_node.py b/ros2_ws/src/command_parser/command_parser/parser_node.py
+index dfbeffb..ddac4ea 100644
+--- a/ros2_ws/src/command_parser/command_parser/parser_node.py
++++ b/ros2_ws/src/command_parser/command_parser/parser_node.py
+@@ -10,7 +10,7 @@ import rclpy
+ from rclpy.callback_groups import MutuallyExclusiveCallbackGroup, ReentrantCallbackGroup
+ from rclpy.executors import MultiThreadedExecutor
+ from rclpy.node import Node
+-from std_msgs.msg import String
++from std_msgs.msg import Empty, String
+ 
+ from .fast_path import acil_mi
+ from .komut_cozucu import KomutCozucu
+@@ -60,6 +60,12 @@ class ParserNode(Node):
+         self.create_subscription(String, '/voice/text', self._metin_cb, 10,
+                                  callback_group=ReentrantCallbackGroup())
+ 
++        # ACIL DUR nesli: bir cumle cozulurken (LLM birkac saniye surebilir) acil dur
++        # gelirse, o cumlenin sonucu dur'dan SONRA yurutulmesin diye cope atilir.
++        self._acil_nesli = 0
++        self.create_subscription(Empty, '/drone/emergency_stop', self._acil_cb, 10,
++                                 callback_group=ReentrantCallbackGroup())
++
+         if llm is not None:
+             self._isinma_timer = self.create_timer(
+                 0.1, self._isit, callback_group=MutuallyExclusiveCallbackGroup())
+@@ -78,8 +84,12 @@ class ParserNode(Node):
+         else:
+             self.get_logger().warn(f'LLM ısınma başarısız: {sonuc.hata}')
+ 
++    def _acil_cb(self, _msg):
++        self._acil_nesli += 1
++
+     def _metin_cb(self, msg):
+         t_metin = self.get_clock().now()
++        nesil = self._acil_nesli
+         # Acil kelimeler kilidi (LLM'i) beklemez.
+         if acil_mi(normalize(msg.data)):
+             cozum = self.cozucu.coz(msg.data)
+@@ -88,6 +98,14 @@ class ParserNode(Node):
+                 cozum = self.cozucu.coz(msg.data)
+         t_hazir = self.get_clock().now()
+ 
++        if cozum.kaynak == 'acil':
++            self._acil_nesli += 1          # sesli "dur" da bekleyen sonuclari iptal eder
++        elif nesil != self._acil_nesli:
++            self.get_logger().warn(f'"{msg.data}" çözülürken ACİL DUR geldi; sonuç atıldı')
++            self.feedback_pub.publish(Feedback(
++                durum='iptal', mesaj=f'ACİL DUR geldiği için "{cozum.metin}" iptal edildi'))
++            return
++
+         if not cozum.komut_var:
+             self.get_logger().info(
+                 f'"{msg.data}" -> komut yok [{cozum.kaynak}] {cozum.hata} ({cozum.sure_ms:.1f} ms)')
+diff --git a/ros2_ws/src/drone_bringup/config/telsiz.yaml b/ros2_ws/src/drone_bringup/config/telsiz.yaml
+new file mode 100644
+index 0000000..7f6e077
+--- /dev/null
++++ b/ros2_ws/src/drone_bringup/config/telsiz.yaml
+@@ -0,0 +1,22 @@
++# mobile_bridge (telsiz koprusu) parametreleri. MOBIL_TELSIZ_ACIKLAMA.txt Bolum 6.
++mobile_bridge:
++  ros__parameters:
++    host: 0.0.0.0
++    port: 8765
++    token_env: TELSIZ_TOKEN          # anahtar ortam degiskeninde; yoksa her acilista rastgele
++    ilan_ip: ""                      # QR'a yazilacak IP; bos = otomatik
++    tek_operator: true               # ayni anda tek telefon komut verir, digerleri izleyici
++    en_uzun_konusma_s: 15.0
++    en_kisa_konusma_s: 0.25          # daha kisa basislar (cebe surtunme) yok sayilir
++    baglanti_zaman_asimi_s: 3.0      # operatorden bu kadar sinyal gelmezse "telsiz koptu"
++    baglanti_koparsa: dur            # dur: drone yerinde asili kalir | devam
++    telemetri_hz: 2.0
++    kayit_klasoru: ""                # ornek: ~/llm_drone/recordings/telsiz (Faz 3 test seti)
++
++    # Yer istasyonunda STT ("yer STT" modu). yok = sadece telefonda tanima.
++    stt_motoru: yok                  # yok | faster_whisper
++    stt_model: small                 # GPU varsa: large-v3-turbo (ya da Turkce CT2 surumu)
++    stt_cihaz: auto                  # auto | cpu | cuda
++    stt_hesaplama: int8              # CPU: int8 (small int8 = small float32 doğruluğunda, %33 hızlı)
++                                     # GPU: float16
++    stt_beam_size: 1
+diff --git a/ros2_ws/src/drone_bringup/launch/telsiz.launch.py b/ros2_ws/src/drone_bringup/launch/telsiz.launch.py
+new file mode 100644
+index 0000000..77ddcd0
+--- /dev/null
++++ b/ros2_ws/src/drone_bringup/launch/telsiz.launch.py
+@@ -0,0 +1,41 @@
++"""Telsiz (mobil uygulama) ile tum sistem: kopru + parser + yurutucu.
++
++    export TELSIZ_TOKEN=benim-gizli-anahtarim     # istege bagli
++    ros2 launch drone_bringup telsiz.launch.py
++    ros2 launch drone_bringup telsiz.launch.py yurutucu:=false   # sadece kopru + parser
++
++PX4 SITL, MicroXRCEAgent ve llama-server ayri surecler (scripts/hepsini_baslat.sh).
++"""
++import os
++
++from ament_index_python.packages import get_package_share_directory
++from launch import LaunchDescription
++from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
++from launch.conditions import IfCondition
++from launch.launch_description_sources import PythonLaunchDescriptionSource
++from launch.substitutions import LaunchConfiguration
++from launch_ros.actions import Node
++
++
++def generate_launch_description():
++    paylasim = get_package_share_directory('drone_bringup')
++    launch_dir = os.path.join(paylasim, 'launch')
++
++    def dahil(ad, kosul=None):
++        return IncludeLaunchDescription(
++            PythonLaunchDescriptionSource(os.path.join(launch_dir, ad)), condition=kosul)
++
++    return LaunchDescription([
++        DeclareLaunchArgument('telsiz', default_value=os.path.join(paylasim, 'config', 'telsiz.yaml')),
++        DeclareLaunchArgument('yurutucu', default_value='true'),
++        Node(
++            package='mobile_bridge',
++            executable='bridge_node',
++            name='mobile_bridge',
++            parameters=[LaunchConfiguration('telsiz')],
++            output='screen',
++            emulate_tty=True,
++        ),
++        dahil('parser.launch.py'),
++        dahil('executor.launch.py', IfCondition(LaunchConfiguration('yurutucu'))),
++    ])
+diff --git a/ros2_ws/src/drone_bringup/package.xml b/ros2_ws/src/drone_bringup/package.xml
+index 5bf4fa7..a555563 100644
+--- a/ros2_ws/src/drone_bringup/package.xml
++++ b/ros2_ws/src/drone_bringup/package.xml
+@@ -11,6 +11,7 @@
+   <exec_depend>launch_ros</exec_depend>
+   <exec_depend>mission_executor</exec_depend>
+   <exec_depend>command_parser</exec_depend>
++  <exec_depend>mobile_bridge</exec_depend>
+ 
+   <export>
+     <build_type>ament_python</build_type>
+diff --git a/ros2_ws/src/drone_interfaces/CMakeLists.txt b/ros2_ws/src/drone_interfaces/CMakeLists.txt
+index 8a3250b..8e174be 100644
+--- a/ros2_ws/src/drone_interfaces/CMakeLists.txt
++++ b/ros2_ws/src/drone_interfaces/CMakeLists.txt
+@@ -9,6 +9,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
+   "msg/DroneCommand.msg"
+   "msg/CommandList.msg"
+   "msg/Feedback.msg"
++  "msg/AudioUtterance.msg"
+   DEPENDENCIES builtin_interfaces
+ )
+ 
+diff --git a/ros2_ws/src/drone_interfaces/msg/AudioUtterance.msg b/ros2_ws/src/drone_interfaces/msg/AudioUtterance.msg
+new file mode 100644
+index 0000000..d4b9085
+--- /dev/null
++++ b/ros2_ws/src/drone_interfaces/msg/AudioUtterance.msg
+@@ -0,0 +1,9 @@
++# Bas-konus ile alinmis tek bir konusma (mobile_bridge -> stt_node, Faz 3).
++# Ses telefonda 16 kHz mono PCM16 olarak yakalanir.
++
++builtin_interfaces/Time t_konusma_basladi
++builtin_interfaces/Time t_konusma_bitti   # PTT birakildi (kopruye ulasma ani)
++uint32 id                                 # telefondaki konusma kimligi
++string kaynak                             # telefon | mikrofon | dosya
++uint32 ornekleme_hz                       # 16000
++int16[] ornekler                          # mono PCM
+diff --git a/ros2_ws/src/drone_interfaces/msg/Feedback.msg b/ros2_ws/src/drone_interfaces/msg/Feedback.msg
+index 0459d6e..89164f2 100644
+--- a/ros2_ws/src/drone_interfaces/msg/Feedback.msg
++++ b/ros2_ws/src/drone_interfaces/msg/Feedback.msg
+@@ -1,4 +1,5 @@
+ # mission_executor -> TTS / panel.
+ # durum: kabul | yurutuyor | tamamlandi | reddedildi | hata | bilgi
++#        iptal (parser: cozulurken ACIL DUR geldi, sonuc yayinlanmadi)
+ string durum
+ string mesaj
+diff --git a/ros2_ws/src/mission_executor/mission_executor/px4_interface.py b/ros2_ws/src/mission_executor/mission_executor/px4_interface.py
+index 53a2f1e..9b94546 100644
+--- a/ros2_ws/src/mission_executor/mission_executor/px4_interface.py
++++ b/ros2_ws/src/mission_executor/mission_executor/px4_interface.py
+@@ -31,16 +31,18 @@ class PX4Arayuz:
+     olabilir; bu sinif ROS grafigine bakip dogru adi kendisi bulur.
+     """
+ 
+-    def __init__(self, node, on_ek='/fmu'):
++    def __init__(self, node, on_ek='/fmu', komut_yayinlari=True):
++        """komut_yayinlari=False: yalnizca telemetri okur (ornegin mobile_bridge)."""
+         self.node = node
+         self.on_ek = on_ek.rstrip('/')
+ 
+-        self._mod_pub = node.create_publisher(
+-            OffboardControlMode, f'{self.on_ek}/in/offboard_control_mode', PX4_QOS)
+-        self._hedef_pub = node.create_publisher(
+-            TrajectorySetpoint, f'{self.on_ek}/in/trajectory_setpoint', PX4_QOS)
+-        self._komut_pub = node.create_publisher(
+-            VehicleCommand, f'{self.on_ek}/in/vehicle_command', PX4_QOS)
++        if komut_yayinlari:
++            self._mod_pub = node.create_publisher(
++                OffboardControlMode, f'{self.on_ek}/in/offboard_control_mode', PX4_QOS)
++            self._hedef_pub = node.create_publisher(
++                TrajectorySetpoint, f'{self.on_ek}/in/trajectory_setpoint', PX4_QOS)
++            self._komut_pub = node.create_publisher(
++                VehicleCommand, f'{self.on_ek}/in/vehicle_command', PX4_QOS)
+ 
+         self.yerel = None      # VehicleLocalPosition
+         self.global_ = None    # VehicleGlobalPosition

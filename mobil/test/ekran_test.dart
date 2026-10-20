@@ -19,6 +19,7 @@ void main() {
     );
     await tester.pumpWidget(TelsizUygulamasi(kontrolcu: k));
     expect(find.text('Bağlan'), findsOneWidget);
+    expect(find.text('QR kodu okut'), findsOneWidget, reason: 'Faz 10');
 
     await tester.enterText(find.byType(TextField).first, '10.0.0.2:8765');
     await tester.enterText(find.byType(TextField).last, 'T');
@@ -30,6 +31,11 @@ void main() {
     expect(find.text('OPERATÖR'), findsOneWidget);
     expect(find.text('12 ms'), findsOneWidget, reason: 'ping göstergesi');
     expect(find.text('BAS KONUŞ'), findsOneWidget);
+    // Faz 10: telemetri şeridi
+    expect(find.textContaining('telemetri bekleniyor'), findsOneWidget);
+    b.gelsin({'tip': 'telemetri', 'hazir': true, 'irtifa': 0.0, 'batarya': 1.0, 'havada': false});
+    await tester.pump();
+    expect(find.text('YERDE'), findsOneWidget);
 
     // Faz 5: hızlı tuş -> metin gider; sunucudan komut gelince kart + JSON
     await tester.tap(find.text('eve dön'));

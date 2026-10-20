@@ -12,12 +12,15 @@ Telefon gercek kopruyle ayni protokolu konusur. Bu sunucu ROS yerine:
     python3 -m mobile_bridge.deneme_sunucusu --sahte-stt "kalk"   # her sese "kalk" de (Faz 8)
     python3 -m mobile_bridge.deneme_sunucusu --stt faster_whisper # gercek Turkce STT (Faz 9)
     python3 -m mobile_bridge.deneme_sunucusu --stt faster_whisper --kayit kayitlar/
+
+Faz 10: sanal drone 2 Hz telemetri yayinlar (irtifa, batarya, mod...) ve
+baglanti adresi terminalde QR kod olarak cikar (pip install qrcode).
+Telefon ve bilgisayar ayni Wi-Fi'da olmali.
 """
 import argparse
 import asyncio
 import os
 import secrets
-import socket
 import sys
 import time
 
@@ -36,23 +39,12 @@ from mission_executor.safety import AracDurumu, Guvenlik, Limitler, Reddedildi  
 
 from . import protokol  # noqa: E402
 from .cekirdek import Ayarlar, RosArayuzu, TelsizCekirdegi  # noqa: E402
+from .qr_kod import terminale_yaz, yerel_ip  # noqa: E402
 from .stt_motoru import motor_olustur  # noqa: E402
 from .sunucu import TelsizSunucusu  # noqa: E402
 
 # Sanal drone hizlari (gorsel geri bildirim icin; gercek fizik degil)
 YATAY_MPS, DIKEY_MPS, DONUS_DPS = 5.0, 3.0, 45.0
-
-
-def yerel_ip():
-    """Varsayilan ag arayuzunun IP'si (paket gondermez; UDP connect yalnizca rota secer)."""
-    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    try:
-        s.connect(('10.255.255.255', 1))
-        return s.getsockname()[0]
-    except OSError:
-        return '127.0.0.1'
-    finally:
-        s.close()
 
 
 class SahteSTT:
@@ -128,8 +120,10 @@ class SanalDrone(RosArayuzu):
         for komut, hedef in zip(komutlar, hedefler):
             self._yolla(self.cek.ros_geri_bildirim('yurutuyor', mesajlar.baslarken(komut)))
             await asyncio.sleep(self._sure(hedef) / self.hiz_katsayisi)
-            self.durum = Guvenlik.sonraki_durum(self.durum, hedef)
-            self.cek.havada = self.durum.havada     # Faz 10'da telemetriden gelecek
+            d = Guvenlik.sonraki_durum(self.durum, hedef)
+            self.durum = AracDurumu(poz=d.poz, havada=d.havada,      # her adim bataryadan %1 yer
+                                    batarya=max(0.0, d.batarya - 0.01))
+            self._yolla(self.cek.telemetri(self.telemetri()))       # havada bilgisi buradan
             self._yolla(self.cek.ros_geri_bildirim('tamamlandi', f'{komut["komut"]} tamamlandı'))
 
     def acil_dur_yayinla(self):
@@ -153,6 +147,14 @@ class SanalDrone(RosArayuzu):
             print(f'  STT #{konusma.konusma_id}: "{metin}" ({sure:.0f} ms)', flush=True)
             self._yolla(self.cek.stt_sonucu(konusma, metin, sure, hata))
         asyncio.ensure_future(calistir())
+
+    def telemetri(self):
+        """bridge_node'daki donustur.telemetri_sozlugu ile AYNI alanlar (telefon farki bilmez)."""
+        p, d = self.durum.poz, self.durum
+        return {'hazir': True, 'irtifa': round(p.irtifa, 1) + 0.0, 'hiz': 0.0,   # +0.0: -0.0 olmasin
+                'yaw': round((p.yaw * 57.2958) % 360), 'x': round(p.x, 1), 'y': round(p.y, 1),
+                'batarya': round(d.batarya, 2), 'arm': d.havada, 'havada': d.havada,
+                'mod': 'OFFBOARD' if d.havada else 'BEKLE (HOLD)'}
 
     def _sure(self, hedef):
         a, b = self.durum.poz, hedef.poz
@@ -190,11 +192,18 @@ async def calis(args, hazir=None):
     gorev = asyncio.ensure_future(sunucu.calis())
     await sunucu.hazir_bekle()
     adres = protokol.baglanti_adresi(args.ilan_ip or yerel_ip(), sunucu.port, token)
-    print(f'\nDeneme sunucusu (ROS yok). Bağlantı adresi:\n{adres}')
+    print(f'\nDeneme sunucusu (ROS yok). Telefonda okut ya da yaz:\n{adres}\n{terminale_yaz(adres)}')
     print(f'STT: {stt.ad if stt else "yok"} | LLM: {args.llm or "yok"} | Ctrl+C ile çık\n', flush=True)
     if hazir:
         hazir(sunucu, adres)
+
+    async def telemetri_dongusu():          # gercek koprude: bridge_node._telemetri_tik (ROS timer)
+        while True:
+            await sunucu._gonder(cekirdek.telemetri(drone.telemetri()))
+            await asyncio.sleep(0.5)
+    t = asyncio.ensure_future(telemetri_dongusu())
     await gorev
+    t.cancel()
 
 
 def arguman_cozucu():

@@ -4,6 +4,10 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <!-- Bas-konuş mikrofonu (çalışma anında da kullanıcıya sorulur) -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <!-- Faz 10: QR kod okuma (mobile_scanner; çalışma anında sorulur) -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <!-- Bluetooth kulaklık mikrofonu (Android 12+) -->
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
 
     <application
         android:label="Drone Telsizi"
@@ -49,6 +53,10 @@
              görebilmek için açıkça istemek gerekir (speech_to_text). -->
         <intent>
             <action android:name="android.speech.RecognitionService" />
+        </intent>
+        <!-- Faz 10: Türkçe TTS motorunu görebilmek için (flutter_tts) -->
+        <intent>
+            <action android:name="android.intent.action.TTS_SERVICE" />
         </intent>
         <intent>
             <action android:name="android.intent.action.PROCESS_TEXT"/>

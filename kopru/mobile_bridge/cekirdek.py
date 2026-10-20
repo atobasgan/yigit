@@ -9,6 +9,7 @@ Faz 3: giris, roller, ping, metin.  Faz 5: komut / geri bildirim eslestirme.
 Faz 6: ACIL DUR, kalp atisi, telsiz koparsa dur, iptal edilen sonuclar.
 Faz 8: bas-konus ses akisi (parcalari birlestir, STT'ye ver).
 Faz 9: konusmalari WAV + etiketler.csv olarak kaydet (veri seti).
+Faz 10: PX4 telemetrisi (havada bilgisi artik buradan), durum ozeti.
 """
 from collections import deque
 from dataclasses import dataclass, field
@@ -85,7 +86,8 @@ class TelsizCekirdegi:
         self._son_komut_id = None
         self._son_komut_t = 0.0
         self._kopma_bildirildi = False
-        self.havada = None              # drone havada mi? None = bilinmiyor (Faz 10: telemetri)
+        self.havada = None              # drone havada mi? telemetriden; None = bilinmiyor
+        self.son_telemetri = None       # yeni baglanan telefona hemen gosterilir
         self.sayaclar = {'konusma': 0, 'metin': 0, 'red': 0, 'acil_dur': 0, 'kayip_parca': 0}
 
     # ------------------------------------------------------------------ baglanti
@@ -190,6 +192,8 @@ class TelsizCekirdegi:
             ses={'bicim': 'pcm16', 'hz': p.ORNEKLEME_HZ, 'kanal': 1},
             en_uzun_konusma_s=self.ayarlar.en_uzun_konusma_s,
             sunucu_saati=time.time())))
+        if self.son_telemetri:
+            cikti.append((istemci, p.json_yaz('telemetri', **self.son_telemetri)))
         return cikti
 
     def _ptt_bitti(self, istemci, mesaj):
@@ -301,6 +305,17 @@ class TelsizCekirdegi:
         return [(HERKES, p.json_yaz('geri_bildirim', id=konusma_id, durum=durum, mesaj=mesaj))]
 
     # ------------------------------------------------------------------ zamanlayici
+    # ------------------------------------------------------------------ telemetri
+    def telemetri(self, veri):
+        """PX4'ten (bridge_node) ya da sanal drone'dan 2 Hz telemetri.
+
+        'havada' alani kalp atisi kurali icin de kullanilir: yerdeki drone'a
+        telsiz koptugunda gereksiz dur gonderilmez.
+        """
+        self.son_telemetri = veri
+        self.havada = veri.get('havada')
+        return [(HERKES, p.json_yaz('telemetri', **veri))]
+
     def tik(self):
         """Duzenli cagrilir (0.5 sn): operatorun kalp atisi (ping) kontrolu."""
         op = self.operator
@@ -322,3 +337,11 @@ class TelsizCekirdegi:
             eylem = 'drone yerinde asılı kalıyor'
         return [(HERKES, p.json_yaz('geri_bildirim', id=None, durum='telsiz_koptu',
                                     mesaj=f'{sebep}; {eylem}'))]
+
+    def durum_ozeti(self):
+        """Log icin kisa ozet (bridge_node 30 sn'de bir yazar)."""
+        return {
+            'istemci': len(self.istemciler),
+            'operator': self.operator.cihaz if self.operator else None,
+            **self.sayaclar,
+        }

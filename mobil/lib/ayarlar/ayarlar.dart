@@ -14,6 +14,8 @@ class Ayarlar {
     this.onKayit = true,
     this.sonKayitMs = 150,
     this.gurultuBastirma = false,
+    this.sesliYanit = true,
+    this.titresim = true,
   });
 
   final String sunucuAdresi;
@@ -37,6 +39,10 @@ class Ayarlar {
   final int sonKayitMs;
   final bool gurultuBastirma;
 
+  /// Faz 10: "yükseliyorum", "reddedildi" gibi durumları Türkçe seslendir.
+  final bool sesliYanit;
+  final bool titresim;
+
   Ayarlar copyWith({
     String? sunucuAdresi,
     String? token,
@@ -46,6 +52,8 @@ class Ayarlar {
     bool? onKayit,
     int? sonKayitMs,
     bool? gurultuBastirma,
+    bool? sesliYanit,
+    bool? titresim,
   }) => Ayarlar(
     sunucuAdresi: sunucuAdresi ?? this.sunucuAdresi,
     token: token ?? this.token,
@@ -56,6 +64,8 @@ class Ayarlar {
     onKayit: onKayit ?? this.onKayit,
     sonKayitMs: sonKayitMs ?? this.sonKayitMs,
     gurultuBastirma: gurultuBastirma ?? this.gurultuBastirma,
+    sesliYanit: sesliYanit ?? this.sesliYanit,
+    titresim: titresim ?? this.titresim,
   );
 }
 
@@ -73,6 +83,8 @@ class AyarDeposu {
       onKayit: p.getBool('onKayit') ?? true,
       sonKayitMs: p.getInt('sonKayitMs') ?? 150,
       gurultuBastirma: p.getBool('gurultuBastirma') ?? false,
+      sesliYanit: p.getBool('sesliYanit') ?? true,
+      titresim: p.getBool('titresim') ?? true,
     );
   }
 
@@ -86,5 +98,7 @@ class AyarDeposu {
     await p.setBool('onKayit', a.onKayit);
     await p.setInt('sonKayitMs', a.sonKayitMs);
     await p.setBool('gurultuBastirma', a.gurultuBastirma);
+    await p.setBool('sesliYanit', a.sesliYanit);
+    await p.setBool('titresim', a.titresim);
   }
 }

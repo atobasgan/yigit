@@ -3,8 +3,10 @@ import 'package:flutter/material.dart';
 import '../bilesenler/acil_dur_dugmesi.dart';
 import '../bilesenler/konusma_karti.dart';
 import '../bilesenler/ptt_dugmesi.dart';
+import '../bilesenler/telemetri_seridi.dart';
 import '../durum/modeller.dart';
 import '../durum/telsiz_kontrolcusu.dart';
+import 'ayarlar_ekrani.dart';
 
 /// Hızlı tuşlar da METİN olarak gider ve command_parser'dan geçer:
 /// telefon komutu kendisi yorumlamaz, güvenlik katmanı her zaman çalışır.
@@ -12,6 +14,7 @@ const hizliKomutlar = ['kalk', 'in', 'eve dön', '10 metre yüksel', 'sağa dön
 
 /// Faz 5: Komut kartları, hızlı tuşlar ve yazılı komut. Faz 6: ACİL DUR.
 /// Faz 7: bas-konuş (telefonda tanıma). Faz 8: ham ses (yer STT).
+/// Faz 10: telemetri şeridi ve ayarlar ekranı.
 class TelsizEkrani extends StatefulWidget {
   const TelsizEkrani({super.key, required this.kontrolcu});
 
@@ -45,7 +48,13 @@ class _TelsizEkraniState extends State<TelsizEkrani> {
           titleSpacing: 12,
           title: BaglantiBasligi(k: k),
           actions: [
-            IconButton(tooltip: 'Bağlantıyı kes', icon: const Icon(Icons.link_off), onPressed: k.kopar),
+            IconButton(
+              tooltip: 'Ayarlar',
+              icon: const Icon(Icons.tune),
+              // Navigator: ekran yığını. push = yeni ekranı üste koy; geri tuşu pop eder.
+              onPressed: () =>
+                  Navigator.of(context).push(MaterialPageRoute(builder: (_) => AyarlarEkrani(kontrolcu: k))),
+            ),
             Padding(
               padding: const EdgeInsets.only(right: 8),
               child: AcilDurDugmesi(onBasildi: k.acilDur, etkin: k.bagli),
@@ -54,6 +63,7 @@ class _TelsizEkraniState extends State<TelsizEkrani> {
         ),
         body: Column(
           children: [
+            TelemetriSeridi(telemetri: k.telemetri),
             if (k.bildirim != null)
               MaterialBanner(
                 content: Text(k.bildirim!),

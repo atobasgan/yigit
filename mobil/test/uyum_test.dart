@@ -24,7 +24,7 @@ Future<void> bekle(bool Function() kosul, [String ne = 'koşul']) async {
 void main() {
   final url = Platform.environment['TELSIZ_UYUM_URL'];
 
-  test('telefon <-> köprü: giriş, ping, gerçek parser JSON, güvenlik, anlaşılmayan', () async {
+  test('telefon <-> köprü: giriş, ping, gerçek parser JSON, güvenlik, telemetri, ses, ACİL DUR', () async {
     final istemci = TelsizIstemcisi(cihazAdi: 'uyum_testi', pingAraligi: const Duration(milliseconds: 100));
     final mikrofon = SahteMikrofon();
     final k = TelsizKontrolcusu(
@@ -46,6 +46,12 @@ void main() {
       {'komut': 'kalk'},
     ]);
     expect(kalk.komutKaynagi, 'hizli_yol');
+
+    // Faz 10: sanal drone telemetrisi (bridge_node'daki PX4 telemetrisiyle aynı alanlar)
+    await bekle(() => k.telemetri.havada, 'telemetri: havada');
+    expect(k.telemetri.irtifa, 10.0);
+    expect(k.telemetri.mod, 'OFFBOARD');
+    expect(k.telemetri.batarya, lessThan(1.0));
 
     k.metinGonder('yirmi metre yüksel');
     final yuksel = k.kartlar.first;

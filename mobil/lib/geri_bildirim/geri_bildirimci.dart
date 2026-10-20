@@ -1,18 +1,39 @@
 import 'package:flutter/services.dart';
+import 'package:flutter_tts/flutter_tts.dart';
 
-/// Kullanıcıya dokunsal (ve Faz 10'da sesli) geri bildirim.
+/// Kullanıcıya sesli (Faz 10: Türkçe TTS) ve dokunsal geri bildirim.
 /// Arayüz: testlerde sahtesi kullanılır.
 abstract class GeriBildirimci {
+  Future<void> soyle(String metin);
+  Future<void> sustur();
   void titresim(Titresim tur);
 }
 
 enum Titresim { basla, birak, kabul, red, acil }
 
-/// Telefonun titreşim motoru (HapticFeedback; ek paket gerekmez).
+/// Telefonun kendi Türkçe sesi (iOS AVSpeechSynthesizer / Android TextToSpeech)
+/// ve titreşim motoru (HapticFeedback). Türkçe ses paketi cihazda yoksa
+/// sessizce yalnızca titreşim çalışır.
 class CihazGeriBildirimci implements GeriBildirimci {
-  CihazGeriBildirimci({this.titresimAcik = true});
+  CihazGeriBildirimci({this.sesAcik = true, this.titresimAcik = true}) {
+    _tts.setLanguage('tr-TR');
+    _tts.setSpeechRate(0.55);
+    _tts.awaitSpeakCompletion(false);
+  }
 
+  final FlutterTts _tts = FlutterTts();
+  bool sesAcik;
   bool titresimAcik;
+
+  @override
+  Future<void> soyle(String metin) async {
+    if (!sesAcik || metin.isEmpty) return;
+    await _tts.stop(); // yeni haber eskisini keser: telsizde sıra beklemek yok
+    await _tts.speak(metin);
+  }
+
+  @override
+  Future<void> sustur() async => _tts.stop();
 
   @override
   void titresim(Titresim tur) {

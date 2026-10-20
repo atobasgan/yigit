@@ -271,3 +271,27 @@ def test_konusma_wav_ve_etiket_olarak_kaydedilir(tmp_path):
     assert hz == 16000 and len(pcm) == 32000
     satirlar = (tmp_path / 'etiketler.csv').read_text(encoding='utf-8').splitlines()
     assert satirlar == ['dosya;stt_metni;beklenen_metin', f'{wavlar[0].name};yirmi metre, yüksel;']
+
+
+# ---------------------------------------------------------------- Faz 10: telemetri
+def test_telemetri_herkese_gider_ve_havada_bilgisini_gunceller(ortam):
+    c, ros, _ = ortam
+    i, _ = giris(c)
+    cikti = c.telemetri({'irtifa': 0.0, 'havada': False, 'batarya': 0.9})
+    assert cikti[0][0] is HERKES and mesaj(cikti, 'telemetri')['batarya'] == 0.9
+    c.koptu(i)                                   # yerdeki drone'a telsiz kopunca dur gitmez
+    assert ros.acil == 0
+
+
+def test_hos_geldinde_son_telemetri(ortam):
+    c, *_ = ortam
+    c.telemetri({'irtifa': 12.3, 'havada': True})
+    _, cikti = giris(c)
+    assert mesaj(cikti, 'telemetri')['irtifa'] == 12.3
+
+
+def test_durum_ozeti(ortam):
+    c, *_ = ortam
+    giris(c, 'pixel')
+    ozet = c.durum_ozeti()
+    assert ozet['istemci'] == 1 and ozet['operator'] == 'pixel' and ozet['acil_dur'] == 0

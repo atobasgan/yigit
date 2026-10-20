@@ -33,7 +33,7 @@ def adres_coz(url):
 
 
 async def calistir(url, metin=None, acil=False, bekle_s=4.0, cikti=print, rol='operator',
-                   wav=None, gercek_zaman=True):
+                   wav=None, gercek_zaman=True, telemetri_goster=False):
     adres, token = adres_coz(url)
     async with websockets.connect(adres, max_size=1 << 20) as ws:
         await ws.send(p.json_yaz('merhaba', surum=p.SURUM, token=token, rol=rol,
@@ -68,6 +68,8 @@ async def calistir(url, metin=None, acil=False, bekle_s=4.0, cikti=print, rol='o
             except asyncio.TimeoutError:
                 break
             mesaj = json.loads(ham)
+            if mesaj.get('tip') == 'telemetri' and not telemetri_goster:
+                continue                      # 2 Hz akar; okumayi zorlastirmasin
             ms = (time.perf_counter() - t0) * 1000
             cikti(f'<- +{ms:6.0f} ms {json.dumps(mesaj, ensure_ascii=False)}')
     return 0
@@ -81,10 +83,12 @@ def main(argv=None):
     grup.add_argument('--acil', action='store_true', help='ACİL DUR gönder')
     grup.add_argument('--wav', help='16 kHz mono WAV dosyasını bas-konuş gibi akıt')
     ap.add_argument('--izleyici', action='store_true', help='izleyici olarak bağlan')
+    ap.add_argument('--telemetri', action='store_true', help='telemetri mesajlarını da yazdır')
     ap.add_argument('--bekle', type=float, default=2.0, help='cevaplari kaç saniye dinle')
     args = ap.parse_args(argv)
     return asyncio.run(calistir(args.url, args.metin, args.acil, args.bekle,
-                                rol='izleyici' if args.izleyici else 'operator', wav=args.wav))
+                                rol='izleyici' if args.izleyici else 'operator', wav=args.wav,
+                                telemetri_goster=args.telemetri))
 
 
 if __name__ == '__main__':

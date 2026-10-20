@@ -70,6 +70,8 @@
 	<string>Bas-konuş tuşuyla drone'a sesli komut vermek için mikrofon gerekiyor.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>Konuşmanız telefonda yazıya çevrilir ve drone'a komut olarak gönderilir.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Yer istasyonunun QR kodunu okutmak için kamera gerekiyor.</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Aynı Wi-Fi ağındaki yer istasyonuna (drone köprüsü) bağlanmak için.</string>
 	<key>NSAppTransportSecurity</key>
